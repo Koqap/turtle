@@ -5,29 +5,44 @@ local PROTOCOL = "geo_scan_results"
 ----------------------------------
 -- BASE STATION CHEST SETUP
 ----------------------------------
-print("Place chest BEHIND turtle, then press ENTER")
+print("═══════════════════════════════════")
+print("  CHEST SETUP  ")
+print("═══════════════════════════════════")
+print("Place chest BEHIND turtle")
+print("(Turtle should face AWAY from chest)")
+print("")
+print("Press ENTER when ready...")
 read()
 
+-- Save home position (where we can access the chest)
+print("Getting home position...")
+local homeX, homeY, homeZ = gps.locate(3)
+if not homeX then
+    error("ERROR: GPS signal required!")
+end
+homeX, homeY, homeZ = math.floor(homeX), math.floor(homeY), math.floor(homeZ)
+print(string.format("✓ Home position: %d, %d, %d", homeX, homeY, homeZ))
+
+-- Turn around to verify chest is behind us
+print("Verifying chest...")
 turtle.turnLeft()
 turtle.turnLeft()
 
 local ok, chestData = turtle.inspect()
 if not ok or not string.find(chestData.name or "", "chest") then
+    turtle.turnLeft()
+    turtle.turnLeft()
     error("ERROR: No chest found behind turtle!")
 end
 
 print("✓ Chest detected!")
-local chestX, chestY, chestZ = gps.locate(3)
-if not chestX then error("ERROR: GPS signal required!") end
-chestX, chestY, chestZ = math.floor(chestX), math.floor(chestY), math.floor(chestZ)
 
--- Calculate chest position (1 block behind)
-chestZ = chestZ - 1
-
+-- Turn back to original facing
 turtle.turnLeft()
 turtle.turnLeft()
 
-print(string.format("Chest at: %d, %d, %d", chestX, chestY, chestZ))
+print("✓ Setup complete - chest is accessible from home position")
+print("═══════════════════════════════════")
 
 ----------------------------------
 -- WIRELESS MODEM SETUP
@@ -169,9 +184,9 @@ local function computeFuelNeeded()
         local d = math.abs(b.x - tx) + math.abs(b.y - ty) + math.abs(b.z - tz)
         if d > maxDist then maxDist = d end
     end
-    -- Add distance to chest for return trips
-    local chestDist = math.abs(chestX - tx) + math.abs(chestY - ty) + math.abs(chestZ - tz)
-    return maxDist * 2 + chestDist * 2 + 200   -- safety margin for multiple chest trips
+    -- Add distance to home/chest for return trips
+    local homeDist = math.abs(homeX - tx) + math.abs(homeY - ty) + math.abs(homeZ - tz)
+    return maxDist * 2 + homeDist * 2 + 200   -- safety margin for multiple chest trips
 end
 
 local function ensureFuel()
@@ -222,7 +237,8 @@ end
 local function depositToChest()
     print("Depositing items to chest...")
 
-    -- Face the chest (behind = turn around)
+    -- We're at home position, chest is behind us
+    -- Turn around to face the chest
     turtle.turnLeft()
     turtle.turnLeft()
 
@@ -231,16 +247,20 @@ local function depositToChest()
         local item = turtle.getItemDetail(i)
         if item and not isFuelItem(item.name) then
             turtle.select(i)
-            turtle.drop()
-            deposited = deposited + 1
+            if turtle.drop() then
+                deposited = deposited + 1
+            end
         end
     end
 
-    -- Turn back
+    -- Turn back to original facing
     turtle.turnLeft()
     turtle.turnLeft()
 
-    print(string.format("Deposited %d stacks", deposited))
+    -- Refuel from coal we just mined
+    invRefuel()
+
+    print(string.format("✓ Deposited %d stacks to chest", deposited))
     return deposited
 end
 
@@ -263,8 +283,8 @@ for i, b in ipairs(coal) do
 
     -- Check if inventory is almost full
     if inventoryAlmostFull() then
-        print("Inventory almost full, returning to chest...")
-        moveTo(chestX, chestY, chestZ)
+        print("Inventory almost full, returning to home...")
+        moveTo(homeX, homeY, homeZ)
         depositToChest()
         print("Returning to mining...")
     end
@@ -275,10 +295,11 @@ for i, b in ipairs(coal) do
 end
 
 ----------------------------------
--- RETURN TO CHEST
+-- RETURN TO HOME/CHEST
 ----------------------------------
-print("Returning to chest...")
-moveTo(chestX, chestY, chestZ)
+print("Returning to home...")
+moveTo(homeX, homeY, homeZ)
 depositToChest()
 
 print("All coal mined!")
+print(string.format("Final position: home base at %d, %d, %d", homeX, homeY, homeZ))
