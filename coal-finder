@@ -1,16 +1,18 @@
--- COAL FINDER - Auto Coal Detection & Mining (v1.0)
+-- COAL FINDER - Auto Coal Detection & Mining (v2.0)
 -- FEATURES:
---  * Scans area in expanding radius for coal
---  * Auto-detects coal ore nearby
+--  * Auto-detects advanced scanner peripherals (Plethora, etc)
+--  * Long-range detection (8-10 blocks with mods)
+--  * Fast vanilla fallback (efficient adjacent scanning)
 --  * Mines only coal, no tunnel digging
 --  * Returns to chest when inventory full
---  * Spiral search pattern for full coverage
+--  * Smart pathfinding to detected ores
 --  * Position tracking for navigation back
 
 -- ============ CONFIG ==============
-local SCAN_RADIUS = 16           -- How far to search
+local SCAN_RADIUS = 10           -- How far to search (with advanced scanner)
+local VANILLA_RANGE = 3          -- Search range for vanilla mode
 local MIN_FUEL = 100             -- Minimum fuel before returning
-local SEARCH_DEPTH = 3           -- How many Y levels to check (above/below)
+local MOVE_INTERVAL = 3          -- Blocks between scan points (vanilla mode)
 
 -- Items to look for
 local TARGET_ORES = {
@@ -39,6 +41,35 @@ local stats = {
     blocksMined = 0,
     returns = 0,
 }
+
+-- Advanced scanner detection
+local scanner = nil
+local scannerType = "vanilla"
+
+-- Try to find advanced scanning peripherals
+local function detectScanner()
+    -- Try Plethora's block scanner
+    if peripheral then
+        scanner = peripheral.find("geoScanner")
+        if scanner then
+            scannerType = "plethora"
+            print("✓ Plethora GeoScanner detected!")
+            return true
+        end
+
+        -- Try other scanner types
+        scanner = peripheral.find("blockScanner")
+        if scanner then
+            scannerType = "advanced"
+            print("✓ Advanced BlockScanner detected!")
+            return true
+        end
+    end
+
+    print("→ Using vanilla detection mode")
+    scannerType = "vanilla"
+    return false
+end
 
 -- ============ POSITION TRACKING ==============
 local function updatePosition(movement)
@@ -316,7 +347,29 @@ local function returnToChestAndRefuel()
     return resumeX, resumeY, resumeZ, resumeFacing
 end
 
--- ============ SCANNING ==============
+-- ============ ADVANCED SCANNING ==============
+local function scanWithAdvancedScanner()
+    -- Scan large area with advanced scanner (Plethora, etc)
+    local ores = {}
+
+    if scannerType == "plethora" and scanner and scanner.scan then
+        local blocks = scanner.scan(SCAN_RADIUS)
+        for _, block in ipairs(blocks) do
+            if isTargetOre(block.name) then
+                table.insert(ores, {
+                    x = currentPos.x + block.x,
+                    y = currentPos.y + block.y,
+                    z = currentPos.z + block.z,
+                    name = block.name
+                })
+            end
+        end
+    end
+
+    return ores
+end
+
+-- ============ VANILLA SCANNING (OPTIMIZED) ==============
 local function scanDirection(direction)
     local ok, data
     if direction == "forward" then
@@ -333,29 +386,27 @@ local function scanDirection(direction)
     return false, nil
 end
 
-local function scanAllDirections()
-    -- Scan current position in all 6 directions
+local function quickScanNearby()
+    -- Fast scan of adjacent blocks only
     local coals = {}
 
-    -- Forward
-    local found, name = scanDirection("forward")
-    if found then table.insert(coals, {dir="forward", name=name}) end
-
-    -- Up
-    found, name = scanDirection("up")
-    if found then table.insert(coals, {dir="up", name=name}) end
-
-    -- Down
-    found, name = scanDirection("down")
-    if found then table.insert(coals, {dir="down", name=name}) end
-
-    -- Turn and check other 3 horizontal directions
-    for i=1,3 do
-        turnRight()
-        found, name = scanDirection("forward")
-        if found then table.insert(coals, {dir="forward", name=name, turns=i}) end
+    -- Check forward
+    local ok, data = turtle.inspect()
+    if ok and isTargetOre(data.name) then
+        table.insert(coals, {dir="forward", name=data.name, x=currentPos.x, y=currentPos.y, z=currentPos.z})
     end
-    turnRight() -- Back to original facing
+
+    -- Check up
+    ok, data = turtle.inspectUp()
+    if ok and isTargetOre(data.name) then
+        table.insert(coals, {dir="up", name=data.name, x=currentPos.x, y=currentPos.y+1, z=currentPos.z})
+    end
+
+    -- Check down
+    ok, data = turtle.inspectDown()
+    if ok and isTargetOre(data.name) then
+        table.insert(coals, {dir="down", name=data.name, x=currentPos.x, y=currentPos.y-1, z=currentPos.z})
+    end
 
     return coals
 end
@@ -398,59 +449,99 @@ local function mineCoalVein()
     return mined
 end
 
--- ============ SPIRAL SEARCH PATTERN ==============
-local function spiralSearch(radius)
-    print(string.format("\n→ Searching radius %d...", radius))
-    local x, z = 0, 0
-    local dx, dz = 0, -1
+-- ============ FAST GRID SEARCH ==============
+local function navigateToTarget(tx, ty, tz)
+    -- Navigate to specific coordinates
+    local dx = tx - currentPos.x
+    local dy = ty - currentPos.y
+    local dz = tz - currentPos.z
 
-    for i = 1, (radius * 2 + 1) ^ 2 do
-        -- Check if we need to return
-        if inventoryFull() or turtle.getFuelLevel() < calculateFuelNeeded() + MIN_FUEL then
-            print("⚠️  Inventory full or low fuel")
-            returnToChestAndRefuel()
-            return false
-        end
+    -- Move Y first
+    while dy > 0 do
+        safeUp()
+        dy = dy - 1
+    end
+    while dy < 0 do
+        safeDown()
+        dy = dy + 1
+    end
 
-        -- Scan current position
-        local coals = scanAllDirections()
-        if #coals > 0 then
-            print(string.format("  ✓ Found %d coal block(s) nearby!", #coals))
-            local mined = mineCoalVein()
-            stats.coalFound = stats.coalFound + mined
-            stats.blocksMined = stats.blocksMined + mined
-        end
-
-        -- Move to next spiral position
-        if x == z or (x < 0 and x == -z) or (x > 0 and x == 1-z) then
-            dx, dz = -dz, dx
-        end
-
-        -- Update target
-        x, z = x + dx, z + dz
-
-        -- Navigate to position (simple approach)
-        local targetX = x
-        local targetZ = z
-
-        -- Move in X direction
-        while currentPos.x < targetX do
-            while currentPos.facing ~= 1 do turnRight() end
+    -- Move X
+    if dx ~= 0 then
+        local targetFacing = dx > 0 and 1 or 3
+        while currentPos.facing ~= targetFacing do turnRight() end
+        for i = 1, math.abs(dx) do
             safeForward()
         end
-        while currentPos.x > targetX do
-            while currentPos.facing ~= 3 do turnRight() end
-            safeForward()
-        end
+    end
 
-        -- Move in Z direction
-        while currentPos.z < targetZ do
-            while currentPos.facing ~= 2 do turnRight() end
+    -- Move Z
+    if dz ~= 0 then
+        local targetFacing = dz > 0 and 2 or 0
+        while currentPos.facing ~= targetFacing do turnRight() end
+        for i = 1, math.abs(dz) do
             safeForward()
         end
-        while currentPos.z > targetZ do
-            while currentPos.facing ~= 0 do turnRight() end
-            safeForward()
+    end
+end
+
+local function fastGridSearch()
+    print("\n→ Fast grid search mode")
+
+    if scannerType == "plethora" or scannerType == "advanced" then
+        -- Advanced scanner mode - scan from fixed positions
+        print("  Using advanced scanner...")
+
+        while true do
+            -- Scan large area
+            local ores = scanWithAdvancedScanner()
+
+            if #ores > 0 then
+                print(string.format("  ✓ Found %d coal ore(s)!", #ores))
+
+                -- Mine each detected ore
+                for _, ore in ipairs(ores) do
+                    -- Check inventory/fuel
+                    if inventoryFull() or turtle.getFuelLevel() < calculateFuelNeeded() + MIN_FUEL then
+                        returnToChestAndRefuel()
+                    end
+
+                    -- Navigate to ore
+                    print(string.format("  → Mining at (%d,%d,%d)", ore.x, ore.y, ore.z))
+                    navigateToTarget(ore.x, ore.y, ore.z)
+
+                    -- Mine the vein
+                    local mined = mineCoalVein()
+                    stats.coalFound = stats.coalFound + mined
+                end
+            else
+                print("  No more coal in range")
+                break
+            end
+        end
+    else
+        -- Vanilla mode - faster grid pattern
+        print("  Using vanilla grid search...")
+        local range = VANILLA_RANGE
+
+        for x = -range, range, MOVE_INTERVAL do
+            for z = -range, range, MOVE_INTERVAL do
+                -- Check inventory/fuel
+                if inventoryFull() or turtle.getFuelLevel() < calculateFuelNeeded() + MIN_FUEL then
+                    returnToChestAndRefuel()
+                end
+
+                -- Move to grid position
+                navigateToTarget(x, currentPos.y, z)
+
+                -- Quick scan nearby
+                local coals = quickScanNearby()
+                if #coals > 0 then
+                    print(string.format("  ✓ Coal nearby at (%d,%d,%d)!", x, currentPos.y, z))
+                    local mined = mineCoalVein()
+                    stats.coalFound = stats.coalFound + mined
+                end
+            end
         end
     end
 
@@ -478,6 +569,9 @@ local function initialChecks()
 
     print(string.format("✓ Chest detected at home position"))
 
+    -- Detect scanner
+    detectScanner()
+
     takeFuelFromChest()
     doAutoRefuel()
 
@@ -486,30 +580,30 @@ end
 
 -- ============ MAIN ==============
 print("╔════════════════════════════════════════╗")
-print("║  COAL FINDER v1.0                      ║")
+print("║  COAL FINDER v2.0 - FAST MODE          ║")
 print("╚════════════════════════════════════════╝")
-print("Mode: AUTO COAL DETECTION")
-print(string.format("Scan radius: %d blocks", SCAN_RADIUS))
-print(string.format("Search depth: %d Y-levels", SEARCH_DEPTH))
-print("Pattern: Spiral search with auto-detect")
+print("Mode: OPTIMIZED COAL DETECTION")
+print("Features:")
+print("  • Auto-detects advanced scanners")
+print("  • Long-range detection (with mods)")
+print("  • Fast grid search pattern")
 print("════════════════════════════════════════\n")
 
 if not initialChecks() then return end
 
-print("🔍 Starting coal search...\n")
-
--- Main loop - expand radius over time
-for radius = 1, SCAN_RADIUS do
-    spiralSearch(radius)
-
-    -- Return to base after each radius
-    if currentPos.x ~= 0 or currentPos.y ~= 0 or currentPos.z ~= 0 then
-        returnToChestAndRefuel()
-    end
-
-    print(string.format("✓ Radius %d complete!\n", radius))
+if scannerType == "plethora" or scannerType == "advanced" then
+    print(string.format("Scan radius: %d blocks (advanced)", SCAN_RADIUS))
+else
+    print(string.format("Scan range: %d blocks (vanilla)", VANILLA_RANGE))
+    print(string.format("Grid interval: %d blocks", MOVE_INTERVAL))
 end
 
+print("\n🔍 Starting fast coal search...\n")
+
+-- Run fast grid search
+fastGridSearch()
+
+-- Return home
 print("\n╔════════════════════════════════════════╗")
 print("║  SEARCH COMPLETE!                      ║")
 print("╚════════════════════════════════════════╝")
@@ -517,5 +611,8 @@ print(string.format("Coal found: %d", stats.coalFound))
 print(string.format("Blocks mined: %d", stats.blocksMined))
 print(string.format("Returns: %d", stats.returns))
 print("\nReturning to home...")
-navigateToChest()
-depositItemsToChest()
+if currentPos.x ~= 0 or currentPos.y ~= 0 or currentPos.z ~= 0 then
+    navigateToChest()
+    depositItemsToChest()
+end
+print("✓ Done!")
