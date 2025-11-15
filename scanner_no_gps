@@ -1,8 +1,37 @@
 -- GEO SCAN LARGE (16 radius) – NO GPS VERSION
 -- Sends RELATIVE coordinates (offsets from scanner)
 
+----------------------------------
+-- CONFIGURATION
+----------------------------------
 local SCAN_RADIUS = 16
 local PROTOCOL = "geo_scan_results"
+
+-- Configure which ore to scan for
+-- Options: "coal", "iron", "gold", "diamond", "redstone", "lapis", "emerald", "copper"
+local ORE_TYPE = "coal"  -- Change this to scan for different ores
+
+-- Ore block names (both normal and deepslate variants)
+local ORE_BLOCKS = {
+    coal = {"minecraft:coal_ore", "minecraft:deepslate_coal_ore"},
+    iron = {"minecraft:iron_ore", "minecraft:deepslate_iron_ore"},
+    gold = {"minecraft:gold_ore", "minecraft:deepslate_gold_ore"},
+    diamond = {"minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"},
+    redstone = {"minecraft:redstone_ore", "minecraft:deepslate_redstone_ore"},
+    lapis = {"minecraft:lapis_ore", "minecraft:deepslate_lapis_ore"},
+    emerald = {"minecraft:emerald_ore", "minecraft:deepslate_emerald_ore"},
+    copper = {"minecraft:copper_ore", "minecraft:deepslate_copper_ore"},
+}
+
+-- Get the block names for selected ore
+local targetOres = ORE_BLOCKS[ORE_TYPE]
+if not targetOres then
+    error("ERROR: Invalid ORE_TYPE '" .. ORE_TYPE .. "'. Valid options: coal, iron, gold, diamond, redstone, lapis, emerald, copper")
+end
+
+print("═══════════════════════════════════")
+print(string.format("  SCANNING FOR: %s ORE", string.upper(ORE_TYPE)))
+print("═══════════════════════════════════")
 
 -- Connect scanner
 local scanner = peripheral.wrap("geo_scanner_1")
@@ -61,21 +90,31 @@ local function isExposed(x, y, z)
     return false
 end
 
-print("Filtering coal (exposed only, same level or above)...")
-local coal = {}
+-- Helper function to check if block is target ore
+local function isTargetOre(blockName)
+    for _, oreName in ipairs(targetOres) do
+        if blockName == oreName then
+            return true
+        end
+    end
+    return false
+end
+
+print(string.format("Filtering %s ore (exposed only, same level or above)...", ORE_TYPE))
+local oreList = {}
 local hiddenCount = 0
 local belowCount = 0
 
 for _, b in ipairs(data) do
-    if b.name == "minecraft:coal_ore" or b.name == "minecraft:deepslate_coal_ore" then
-        -- Check if coal is at same level or above scanner (not below)
+    if isTargetOre(b.name) then
+        -- Check if ore is at same level or above scanner (not below)
         -- b.y is relative offset, negative means below scanner
         if b.y < 0 then
-            -- Coal is below scanner - skip it
+            -- Ore is below scanner - skip it
             belowCount = belowCount + 1
         elseif isExposed(b.x, b.y, b.z) then
             -- Keep RELATIVE coordinates (offsets from scanner)
-            table.insert(coal, {
+            table.insert(oreList, {
                 x = b.x,
                 y = b.y,
                 z = b.z,
@@ -87,36 +126,36 @@ for _, b in ipairs(data) do
     end
 end
 
-print("Exposed coal found:", #coal)
-print("Hidden coal (skipped):", hiddenCount)
+print(string.format("Exposed %s ore found: %d", ORE_TYPE, #oreList))
+print("Hidden (skipped):", hiddenCount)
 print("Below scanner level (skipped):", belowCount)
 
 ----------------------------------
--- SORT COAL FOR EFFICIENT MINING
+-- SORT ORES FOR EFFICIENT MINING
 ----------------------------------
 local SORT_MODE = "DISTANCE"  -- "DISTANCE", "CHUNK", or "SWEEP"
 
-if #coal > 0 then
-    print("Sorting coal by mode:", SORT_MODE)
+if #oreList > 0 then
+    print("Sorting ore by mode:", SORT_MODE)
 
     if SORT_MODE == "DISTANCE" then
         -- Sort by distance from scanner (closest first)
-        for _, c in ipairs(coal) do
+        for _, c in ipairs(oreList) do
             c.sortKey = math.sqrt(c.x^2 + c.y^2 + c.z^2)
         end
-        table.sort(coal, function(a, b) return a.sortKey < b.sortKey end)
+        table.sort(oreList, function(a, b) return a.sortKey < b.sortKey end)
         print(string.format("Sorted by distance! Range: %d to %d blocks",
-            math.floor(coal[1].sortKey), math.floor(coal[#coal].sortKey)))
+            math.floor(oreList[1].sortKey), math.floor(oreList[#oreList].sortKey)))
 
     elseif SORT_MODE == "CHUNK" then
         -- Sort by chunk, then Y level
-        for _, c in ipairs(coal) do
+        for _, c in ipairs(oreList) do
             local chunkX = math.floor(c.x / 16)
             local chunkZ = math.floor(c.z / 16)
             c.chunkKey = chunkX * 10000 + chunkZ
             c.yKey = c.y
         end
-        table.sort(coal, function(a, b)
+        table.sort(oreList, function(a, b)
             if a.chunkKey ~= b.chunkKey then return a.chunkKey < b.chunkKey end
             return a.yKey < b.yKey
         end)
@@ -124,7 +163,7 @@ if #coal > 0 then
 
     elseif SORT_MODE == "SWEEP" then
         -- Sweep pattern: X, then Z, then Y
-        table.sort(coal, function(a, b)
+        table.sort(oreList, function(a, b)
             if a.x ~= b.x then return a.x < b.x end
             if a.z ~= b.z then return a.z < b.z end
             return a.y < b.y
@@ -133,18 +172,19 @@ if #coal > 0 then
     end
 
     -- Clean up temporary keys
-    for _, c in ipairs(coal) do
+    for _, c in ipairs(oreList) do
         c.sortKey = nil
         c.chunkKey = nil
         c.yKey = nil
     end
 end
 
-print("Broadcasting RELATIVE coordinates (offsets)...")
+print(string.format("Broadcasting %s ore (RELATIVE coordinates)...", ORE_TYPE))
 print("Protocol:", PROTOCOL)
-rednet.broadcast(coal, PROTOCOL)
+rednet.broadcast(oreList, PROTOCOL)
 
 print("Done!")
+print(string.format("Sent %d %s ore locations to miner", #oreList, ORE_TYPE))
 print("")
 print("NOTE: Miner must start at SAME POSITION as scanner!")
 print("Or manually move scanner data to account for offset.")

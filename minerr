@@ -129,14 +129,15 @@ if type(data) ~= "table" then
     error("Received invalid scan data!")
 end
 
-print("Received", #data, "coal blocks (ABSOLUTE GPS coordinates)")
+print("Received", #data, "ore blocks (ABSOLUTE GPS coordinates)")
 if #data > 0 then
-    print(string.format("First coal at GPS: %d, %d, %d", data[1].x, data[1].y, data[1].z))
+    print(string.format("First ore at GPS: %d, %d, %d", data[1].x, data[1].y, data[1].z))
+    print(string.format("Ore type: %s", data[1].name))
 end
 
--- Scanner already filtered for exposed coal only
-local coal = data
-print("Ready to mine", #coal, "exposed coal blocks")
+-- Scanner already filtered for exposed ore only
+local oreList = data
+print("Ready to mine", #oreList, "exposed ore blocks")
 
 local dirs = { north=0, east=1, south=2, west=3 }
 
@@ -259,8 +260,8 @@ end
 local function computeFuelNeeded()
     local tx, ty, tz = gpsLoc()
     local maxDist = 0
-    for _, b in ipairs(coal) do
-        -- Calculate Manhattan distance from current position to coal block
+    for _, b in ipairs(oreList) do
+        -- Calculate Manhattan distance from current position to ore block
         local d = math.abs(b.x - tx) + math.abs(b.y - ty) + math.abs(b.z - tz)
         if d > maxDist then maxDist = d end
     end
@@ -364,11 +365,11 @@ local function inventoryAlmostFull()
 end
 
 ----------------------------------
--- MINE COAL (using absolute GPS coordinates)
+-- MINE ORES (using absolute GPS coordinates)
 ----------------------------------
 print("Starting mining with absolute GPS coordinates...")
-for i, b in ipairs(coal) do
-    print(string.format("Mining %d/%d at GPS: %d, %d, %d", i, #coal, b.x, b.y, b.z))
+for i, b in ipairs(oreList) do
+    print(string.format("Mining %d/%d at GPS: %d, %d, %d", i, #oreList, b.x, b.y, b.z))
 
     -- Check if fuel is low before moving
     if smartRefuel() then
@@ -395,5 +396,5 @@ print("Returning to home...")
 moveTo(homeX, homeY, homeZ)
 depositToChest()
 
-print("All coal mined!")
+print("All ores mined!")
 print(string.format("Final position: home base at %d, %d, %d", homeX, homeY, homeZ))
