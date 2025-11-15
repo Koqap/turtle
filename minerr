@@ -1,0 +1,93 @@
+-- GEO SCAN AND MINE – Wireless Coal Miner
+
+local PROTOCOL = "geo_scan_results"
+
+-- Find wireless modem
+local modemName = peripheral.find("modem", function(_, m) return m.isWireless() end)
+if not modemName then
+    error("ERROR: No wireless modem on turtle!")
+end
+
+rednet.open(peripheral.getName(modemName))
+
+print("Waiting for scan data on protocol:", PROTOCOL)
+local id, data = rednet.receive(PROTOCOL)
+
+if type(data) ~= "table" then
+    error("Received invalid scan data!")
+end
+
+print("Received", #data, "blocks")
+
+-- Filter coal
+local coal = {}
+for _, b in ipairs(data) do
+    if b.name == "minecraft:coal_ore" or b.name == "minecraft:deepslate_coal_ore" then
+        table.insert(coal, b)
+    end
+end
+
+print("Coal locations:", #coal)
+
+-- GPS helper
+local function gpsLoc()
+    local x,y,z = gps.locate(3)
+    if not x then error("GPS signal lost") end
+    return math.floor(x), math.floor(y), math.floor(z)
+end
+
+-- Movement helpers
+local function tryForward()
+    while not turtle.forward() do turtle.dig() sleep(0.1) end
+end
+local function tryUp()
+    while not turtle.up() do turtle.digUp() sleep(0.1) end
+end
+local function tryDown()
+    while not turtle.down() do turtle.digDown() sleep(0.1) end
+end
+
+-- Basic direction control (auto-facing)
+local facing = 0  -- assume north
+local dirs = { north=0, east=1, south=2, west=3 }
+
+local function turnTo(dir)
+    local target = dirs[dir]
+    while facing ~= target do
+        turtle.turnRight()
+        facing = (facing + 1) % 4
+    end
+end
+
+local function moveTo(tx, ty, tz)
+    local x,y,z = gpsLoc()
+
+    -- vertical
+    while y < ty do tryUp(); y=y+1 end
+    while y > ty do tryDown(); y=y-1 end
+
+    -- X axis
+    if tx > x then turnTo("east") end
+    if tx < x then turnTo("west") end
+    while x ~= tx do tryForward(); x = gpsLoc() end
+
+    -- Z axis
+    if tz > z then turnTo("south") end
+    if tz < z then turnTo("north") end
+    while z ~= tz do tryForward(); z = gpsLoc() end
+end
+
+-- Save starting location
+local sx, sy, sz = gpsLoc()
+
+-- Mine coal
+for i, b in ipairs(coal) do
+    print("Mining", i, "/", #coal)
+    moveTo(sx + b.x, sy + b.y, sz + b.z)
+    turtle.dig()
+end
+
+print("Returning to start...")
+moveTo(sx, sy, sz)
+
+print("All coal mined!")
