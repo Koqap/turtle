@@ -204,15 +204,54 @@ end
 -- AUTO REFUEL SYSTEM
 ----------------------------------
 
--- Uses fuel inside inventory
-local function invRefuel()
+-- Uses fuel inside inventory (only consumes what's needed)
+local function invRefuel(amountNeeded)
+    local startFuel = turtle.getFuelLevel()
+    local targetFuel = startFuel + (amountNeeded or 1000)
+
     for slot = 1, 16 do
+        if turtle.getFuelLevel() >= targetFuel then
+            break  -- Already have enough fuel
+        end
+
         turtle.select(slot)
         if turtle.refuel(0) then
-            turtle.refuel(64)
+            -- This is a fuel item, refuel from it
+            local itemCount = turtle.getItemCount(slot)
+            -- Refuel one at a time to avoid wasting
+            for i = 1, itemCount do
+                if turtle.getFuelLevel() >= targetFuel then
+                    break
+                end
+                turtle.refuel(1)
+            end
         end
     end
     turtle.select(1)
+
+    local gained = turtle.getFuelLevel() - startFuel
+    if gained > 0 then
+        print(string.format("Refueled: +%d fuel (now %d)", gained, turtle.getFuelLevel()))
+    end
+    return gained
+end
+
+-- Smart refuel: only refuel if fuel is getting low
+local function smartRefuel()
+    local current = turtle.getFuelLevel()
+    local tx, ty, tz = gpsLoc()
+
+    -- Calculate fuel needed to get home and do a bit more mining
+    local homeTrip = math.abs(homeX - tx) + math.abs(homeY - ty) + math.abs(homeZ - tz)
+    local buffer = 500  -- Safety margin
+    local needed = homeTrip + buffer
+
+    if current < needed then
+        print(string.format("Low fuel! Current: %d, Need: %d", current, needed))
+        invRefuel(needed - current + 200)  -- Refuel a bit extra
+        return true
+    end
+    return false
 end
 
 -- Check minimal fuel needed:
@@ -307,8 +346,8 @@ local function depositToChest()
     turtle.turnLeft()
     facing = (facing + 2) % 4  -- Update facing (turned 180 degrees back)
 
-    -- Refuel from coal we just mined
-    invRefuel()
+    -- Smart refuel: only consume coal if fuel is actually low
+    smartRefuel()
 
     print(string.format("✓ Deposited %d stacks to chest", deposited))
     return deposited
@@ -330,6 +369,11 @@ end
 print("Starting mining with absolute GPS coordinates...")
 for i, b in ipairs(coal) do
     print(string.format("Mining %d/%d at GPS: %d, %d, %d", i, #coal, b.x, b.y, b.z))
+
+    -- Check if fuel is low before moving
+    if smartRefuel() then
+        print("Refueled before continuing mining")
+    end
 
     -- Check if inventory is almost full
     if inventoryAlmostFull() then
