@@ -1,0 +1,484 @@
+-- GEO SCAN AND MINE V2 – Smart Pathfinding Miner
+-- Features: Optimized movement, path tracking, minimal block breaking
+
+local PROTOCOL = "geo_scan_results"
+
+----------------------------------
+-- MOVEMENT STATISTICS
+----------------------------------
+local stats = {
+    blocksMinedForward = 0,
+    blocksMinedUp = 0,
+    blocksMinedDown = 0,
+    freeMoves = 0,
+    totalMoves = 0,
+    oresMined = 0,
+}
+
+----------------------------------
+-- BASE STATION CHEST SETUP
+----------------------------------
+print("═══════════════════════════════════")
+print("  CHEST SETUP  ")
+print("═══════════════════════════════════")
+print("Place chest BEHIND turtle")
+print("(Turtle should face AWAY from chest)")
+print("")
+print("Press ENTER when ready...")
+read()
+
+-- Save home position (where we can access the chest)
+print("Getting home position...")
+local homeX, homeY, homeZ = gps.locate(3)
+if not homeX then
+    error("ERROR: GPS signal required!")
+end
+homeX, homeY, homeZ = math.floor(homeX), math.floor(homeY), math.floor(homeZ)
+print(string.format("✓ Home position: %d, %d, %d", homeX, homeY, homeZ))
+
+-- Turn around to verify chest is behind us
+print("Verifying chest...")
+turtle.turnLeft()
+turtle.turnLeft()
+
+local ok, chestData = turtle.inspect()
+if not ok or not string.find(chestData.name or "", "chest") then
+    turtle.turnLeft()
+    turtle.turnLeft()
+    error("ERROR: No chest found behind turtle!")
+end
+
+print("✓ Chest detected!")
+
+-- Turn back to original facing
+turtle.turnLeft()
+turtle.turnLeft()
+
+----------------------------------
+-- GPS HELPERS (needed before detecting facing)
+----------------------------------
+local function gpsLoc()
+    local x,y,z = gps.locate(3)
+    if not x then error("GPS signal lost") end
+    return math.floor(x), math.floor(y), math.floor(z)
+end
+
+----------------------------------
+-- SMART MOVEMENT HELPERS
+----------------------------------
+-- Try moving without digging first (use existing paths/caves)
+local function tryForward()
+    stats.totalMoves = stats.totalMoves + 1
+
+    -- Try to move without digging first
+    if turtle.forward() then
+        stats.freeMoves = stats.freeMoves + 1
+        return
+    end
+
+    -- Blocked - need to dig
+    while not turtle.forward() do
+        turtle.dig()
+        stats.blocksMinedForward = stats.blocksMinedForward + 1
+        sleep(0.1)
+    end
+end
+
+local function tryUp()
+    stats.totalMoves = stats.totalMoves + 1
+
+    -- Try to move without digging first
+    if turtle.up() then
+        stats.freeMoves = stats.freeMoves + 1
+        return
+    end
+
+    -- Blocked - need to dig
+    while not turtle.up() do
+        turtle.digUp()
+        stats.blocksMinedUp = stats.blocksMinedUp + 1
+        sleep(0.1)
+    end
+end
+
+local function tryDown()
+    stats.totalMoves = stats.totalMoves + 1
+
+    -- Try to move without digging first
+    if turtle.down() then
+        stats.freeMoves = stats.freeMoves + 1
+        return
+    end
+
+    -- Blocked - need to dig
+    while not turtle.down() do
+        turtle.digDown()
+        stats.blocksMinedDown = stats.blocksMinedDown + 1
+        sleep(0.1)
+    end
+end
+
+----------------------------------
+-- DIRECTION CONTROL
+----------------------------------
+-- Determine actual facing direction using GPS
+local function detectFacing()
+    local x1, y1, z1 = gpsLoc()
+
+    -- Try to move forward
+    if not turtle.forward() then
+        -- Can't move, try digging
+        turtle.dig()
+        if not turtle.forward() then
+            return nil  -- Can't determine facing
+        end
+    end
+
+    local x2, y2, z2 = gpsLoc()
+
+    -- Move back
+    turtle.back()
+
+    -- Determine direction based on coordinate change
+    local dx = x2 - x1
+    local dz = z2 - z1
+
+    if dz == -1 then return 0 end  -- Moved north (Z decreases)
+    if dx == 1 then return 1 end   -- Moved east (X increases)
+    if dz == 1 then return 2 end   -- Moved south (Z increases)
+    if dx == -1 then return 3 end  -- Moved west (X decreases)
+
+    return nil  -- Couldn't determine
+end
+
+print("Detecting facing direction...")
+local facing = detectFacing()
+if not facing then
+    error("ERROR: Could not detect facing direction! Clear space in front of turtle.")
+end
+
+local dirNames = { [0]="north", [1]="east", [2]="south", [3]="west" }
+print(string.format("✓ Turtle facing: %s", dirNames[facing]))
+
+-- Save the home facing direction (chest is behind us in this direction)
+local homeFacing = facing
+print(string.format("✓ Home facing saved: %s (chest is behind)", dirNames[homeFacing]))
+
+print("✓ Setup complete - chest is accessible from home position")
+print("═══════════════════════════════════")
+
+----------------------------------
+-- WIRELESS MODEM SETUP
+----------------------------------
+local modemName = peripheral.find("modem", function(_, m) return m.isWireless() end)
+if not modemName then
+    error("ERROR: No wireless modem on turtle!")
+end
+
+rednet.open(peripheral.getName(modemName))
+
+print("Waiting for scan data on protocol:", PROTOCOL)
+local id, data = rednet.receive(PROTOCOL)
+
+if type(data) ~= "table" then
+    error("Received invalid scan data!")
+end
+
+print("Received", #data, "ore blocks (ABSOLUTE GPS coordinates)")
+if #data > 0 then
+    print(string.format("First ore at GPS: %d, %d, %d", data[1].x, data[1].y, data[1].z))
+    print(string.format("Ore type: %s", data[1].name))
+end
+
+-- Scanner already filtered for exposed ore only
+local oreList = data
+print("Ready to mine", #oreList, "exposed ore blocks")
+
+local dirs = { north=0, east=1, south=2, west=3 }
+
+local function turnTo(dir)
+    local target = dirs[dir]
+    while facing ~= target do
+        turtle.turnRight()
+        facing = (facing + 1) % 4
+    end
+end
+
+----------------------------------
+-- MOVING TO ABSOLUTE COORDINATE
+----------------------------------
+local function moveTo(tx, ty, tz)
+    local x,y,z = gpsLoc()
+    print(string.format("MoveTo: from %d,%d,%d to %d,%d,%d", x, y, z, tx, ty, tz))
+
+    -- Vertical (update GPS after each move)
+    local moveCount = 0
+    while y < ty do
+        tryUp()
+        x,y,z = gpsLoc()
+        moveCount = moveCount + 1
+        if moveCount > 500 then error("Stuck moving up! At "..y.." trying to reach "..ty) end
+    end
+    moveCount = 0
+    while y > ty do
+        tryDown()
+        x,y,z = gpsLoc()
+        moveCount = moveCount + 1
+        if moveCount > 500 then error("Stuck moving down! At "..y.." trying to reach "..ty) end
+    end
+
+    -- X axis (must update ALL coordinates, not just x!)
+    if tx > x then turnTo("east") end
+    if tx < x then turnTo("west") end
+    moveCount = 0
+    while x ~= tx do
+        tryForward()
+        x,y,z = gpsLoc()  -- FIX: capture all 3 values
+        moveCount = moveCount + 1
+        if moveCount > 500 then
+            error(string.format("Stuck on X axis! At %d,%d,%d trying to reach %d,%d,%d", x, y, z, tx, ty, tz))
+        end
+    end
+
+    -- Z axis (must update ALL coordinates, not just z!)
+    if tz > z then turnTo("south") end
+    if tz < z then turnTo("north") end
+    moveCount = 0
+    while z ~= tz do
+        tryForward()
+        x,y,z = gpsLoc()  -- FIX: capture all 3 values
+        moveCount = moveCount + 1
+        if moveCount > 500 then
+            error(string.format("Stuck on Z axis! At %d,%d,%d trying to reach %d,%d,%d", x, y, z, tx, ty, tz))
+        end
+    end
+
+    print(string.format("✓ Arrived at %d,%d,%d", x, y, z))
+end
+
+----------------------------------
+-- AUTO REFUEL SYSTEM
+----------------------------------
+
+-- Uses fuel inside inventory (only consumes what's needed)
+local function invRefuel(amountNeeded)
+    local startFuel = turtle.getFuelLevel()
+    local targetFuel = startFuel + (amountNeeded or 1000)
+
+    for slot = 1, 16 do
+        if turtle.getFuelLevel() >= targetFuel then
+            break  -- Already have enough fuel
+        end
+
+        turtle.select(slot)
+        if turtle.refuel(0) then
+            -- This is a fuel item, refuel from it
+            local itemCount = turtle.getItemCount(slot)
+            -- Refuel one at a time to avoid wasting
+            for i = 1, itemCount do
+                if turtle.getFuelLevel() >= targetFuel then
+                    break
+                end
+                turtle.refuel(1)
+            end
+        end
+    end
+    turtle.select(1)
+
+    local gained = turtle.getFuelLevel() - startFuel
+    if gained > 0 then
+        print(string.format("Refueled: +%d fuel (now %d)", gained, turtle.getFuelLevel()))
+    end
+    return gained
+end
+
+-- Smart refuel: only refuel if fuel is getting low
+local function smartRefuel()
+    local current = turtle.getFuelLevel()
+    local tx, ty, tz = gpsLoc()
+
+    -- Calculate fuel needed to get home and do a bit more mining
+    local homeTrip = math.abs(homeX - tx) + math.abs(homeY - ty) + math.abs(homeZ - tz)
+    local buffer = 500  -- Safety margin
+    local needed = homeTrip + buffer
+
+    if current < needed then
+        print(string.format("Low fuel! Current: %d, Need: %d", current, needed))
+        invRefuel(needed - current + 200)  -- Refuel a bit extra
+        return true
+    end
+    return false
+end
+
+-- Check minimal fuel needed:
+-- (distance to farthest ore × 2 (go+return) + safety)
+local function computeFuelNeeded()
+    local tx, ty, tz = gpsLoc()
+    local maxDist = 0
+    for _, b in ipairs(oreList) do
+        -- Calculate Manhattan distance from current position to ore block
+        local d = math.abs(b.x - tx) + math.abs(b.y - ty) + math.abs(b.z - tz)
+        if d > maxDist then maxDist = d end
+    end
+    -- Add distance to home/chest for return trips
+    local homeDist = math.abs(homeX - tx) + math.abs(homeY - ty) + math.abs(homeZ - tz)
+    return maxDist * 2 + homeDist * 2 + 200   -- safety margin for multiple chest trips
+end
+
+local function ensureFuel()
+    local required = computeFuelNeeded()
+    local current = turtle.getFuelLevel()
+
+    print("Fuel:", current, "/", required)
+
+    -- Try inventory fuel first
+    if current < required then
+        print("Refueling from inventory...")
+        invRefuel()
+        current = turtle.getFuelLevel()
+    end
+
+    if current < required then
+        print("WARNING: Not enough fuel even after refueling!")
+        print("Need:", required, "Have:", current)
+        print("Put fuel in inventory and press ENTER to retry.")
+        read()
+        return ensureFuel()
+    end
+
+    print("Fuel OK!")
+end
+
+----------------------------------
+-- REFUEL BEFORE MINING
+----------------------------------
+ensureFuel()
+
+----------------------------------
+-- ITEM MANAGEMENT
+----------------------------------
+local KEEP_ITEMS = {
+    "minecraft:coal", "minecraft:charcoal", "minecraft:coal_block",
+    "minecraft:lava_bucket", "minecraft:blaze_rod"
+}
+
+local function isFuelItem(itemName)
+    if not itemName then return false end
+    for _, name in ipairs(KEEP_ITEMS) do
+        if name == itemName then return true end
+    end
+    return false
+end
+
+local function depositToChest()
+    print("Depositing items to chest...")
+
+    -- We're at home position, but could be facing any direction
+    -- First, turn to face the same direction as when we started (homeFacing)
+    while facing ~= homeFacing do
+        turtle.turnRight()
+        facing = (facing + 1) % 4
+    end
+
+    -- Now we're facing the same direction as startup
+    -- Chest is behind us, so turn around
+    turtle.turnLeft()
+    turtle.turnLeft()
+    facing = (facing + 2) % 4  -- Update facing (turned 180 degrees)
+
+    local deposited = 0
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item and not isFuelItem(item.name) then
+            turtle.select(i)
+            if turtle.drop() then
+                deposited = deposited + 1
+            end
+        end
+    end
+
+    -- Turn back to home facing direction
+    turtle.turnLeft()
+    turtle.turnLeft()
+    facing = (facing + 2) % 4  -- Update facing (turned 180 degrees back)
+
+    -- Smart refuel: only consume coal if fuel is actually low
+    smartRefuel()
+
+    print(string.format("✓ Deposited %d stacks to chest", deposited))
+    return deposited
+end
+
+local function inventoryAlmostFull()
+    local emptySlots = 0
+    for i = 1, 16 do
+        if turtle.getItemCount(i) == 0 then
+            emptySlots = emptySlots + 1
+        end
+    end
+    return emptySlots <= 3
+end
+
+----------------------------------
+-- MINE ORES (using absolute GPS coordinates)
+----------------------------------
+print("Starting mining with absolute GPS coordinates...")
+for i, b in ipairs(oreList) do
+    print(string.format("Mining %d/%d at GPS: %d, %d, %d", i, #oreList, b.x, b.y, b.z))
+
+    -- Check if fuel is low before moving
+    if smartRefuel() then
+        print("Refueled before continuing mining")
+    end
+
+    -- Check if inventory is almost full
+    if inventoryAlmostFull() then
+        print("Inventory almost full, returning to home...")
+        moveTo(homeX, homeY, homeZ)
+        depositToChest()
+        print("Returning to mining...")
+    end
+
+    -- Use absolute GPS coordinates directly (scanner already converted them)
+    moveTo(b.x, b.y, b.z)
+    turtle.dig()
+    stats.oresMined = stats.oresMined + 1
+end
+
+----------------------------------
+-- RETURN TO HOME/CHEST
+----------------------------------
+print("Returning to home...")
+moveTo(homeX, homeY, homeZ)
+depositToChest()
+
+print("All ores mined!")
+print(string.format("Final position: home base at %d, %d, %d", homeX, homeY, homeZ))
+
+----------------------------------
+-- DISPLAY STATISTICS
+----------------------------------
+print("")
+print("═══════════════════════════════════")
+print("  MINING STATISTICS (Smart Path)")
+print("═══════════════════════════════════")
+print(string.format("Ores mined: %d", stats.oresMined))
+print(string.format("Total moves: %d", stats.totalMoves))
+print(string.format("Free moves (no dig): %d (%.1f%%)", stats.freeMoves, (stats.freeMoves / stats.totalMoves * 100)))
+print("")
+print("Blocks mined for movement:")
+print(string.format("  Forward: %d", stats.blocksMinedForward))
+print(string.format("  Up: %d", stats.blocksMinedUp))
+print(string.format("  Down: %d", stats.blocksMinedDown))
+local totalBlocksMined = stats.blocksMinedForward + stats.blocksMinedUp + stats.blocksMinedDown
+print(string.format("  Total: %d", totalBlocksMined))
+print("")
+local efficiency = (stats.freeMoves / stats.totalMoves * 100)
+if efficiency > 70 then
+    print(string.format("✓ Excellent pathfinding! %.1f%% free moves", efficiency))
+elseif efficiency > 40 then
+    print(string.format("✓ Good pathfinding! %.1f%% free moves", efficiency))
+else
+    print(string.format("Pathfinding: %.1f%% free moves", efficiency))
+end
+print("═══════════════════════════════════")
