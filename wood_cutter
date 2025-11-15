@@ -161,23 +161,9 @@ local function detectFacing()
     elseif dx == -1 then detectedFacing = 3  -- Moved west (X decreases)
     end
 
-    -- Move back to original position (chest might be blocking turtle.back())
-    -- Turn around, move forward, turn back
-    turtle.turnRight()
-    turtle.turnRight()
-    if not turtle.forward() then
-        -- Something blocking behind us, try digging (but not the chest!)
-        local success, data = turtle.inspect()
-        if success and not string.find(data.name or "", "chest") then
-            turtle.dig()
-            turtle.forward()
-        else
-            -- It's a chest or can't inspect, just force forward
-            turtle.forward()
-        end
-    end
-    turtle.turnRight()
-    turtle.turnRight()
+    -- Move back to original position
+    -- Simply back up since we just moved forward
+    turtle.back()
 
     return detectedFacing
 end
