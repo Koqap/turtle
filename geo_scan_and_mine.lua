@@ -1,112 +1,112 @@
--- GEO MINE - Receives wireless scan results and mines coal
+------------------------------
+--  WIRELESS COAL MINER     --
+--  Uses GPS + wireless     --
+--  Receives ore data       --
+------------------------------
 
 local PROTOCOL = "geo_scan_results"
 
--- Open modem (adjust side if needed, e.g., "left")
-local modemSide = peripheral.find("modem")
-if not modemSide then
-    print("ERROR: No wireless modem on turtle!")
-    return
+-- Check modem
+local modem = peripheral.find("modem", function(name, m) return m.isWireless() end)
+if not modem then
+    error("No wireless modem found! Attach a modem to the turtle.")
+end
+modem.open(PROTOCOL)
+
+print("Waiting for scan data on protocol:", PROTOCOL)
+print("Run the GEO SCAN on the computer...")
+
+-- Wait for message
+local event, side, sender, reply, message = os.pullEvent("modem_message")
+
+if reply ~= PROTOCOL then
+    error("Received wrong protocol: " .. tostring(reply))
 end
 
-rednet.open(peripheral.getName(modemSide))
+local scanData = message
 
-print("Waiting for scan data...")
-local id, coords = rednet.receive(PROTOCOL)
-
-if not coords or type(coords) ~= "table" then
-    print("ERROR: Invalid scan data received.")
-    return
+if type(scanData) ~= "table" then
+    error("Invalid scan data received!")
 end
 
-print("Received", #coords, "coal locations!")
-sleep(1)
+print("Received", #scanData, "blocks from scanner.")
 
--- Helper: Dig forward safely
-local function digForward()
-    while turtle.detect() do turtle.dig() end
-    while not turtle.forward() do turtle.attack() end
-end
-
--- Helper: Turn to exact compass direction
-function turtle.setFacing(dir)
-    local directions = {
-        north = 2,
-        south = 0,
-        west  = 3,
-        east  = 1,
-    }
-
-    local facing = directions[dir]
-    if not facing then return end
-
-    while true do
-        local x1, y1, z1 = gps.locate()
-        sleep(0.1)
-        turtle.turnRight()
-        local x2, y2, z2 = gps.locate()
-        sleep(0.1)
-
-        if not x1 or not x2 then break end
-
-        local dx = x2 - x1
-        local dz = z2 - z1
-
-        local current
-        if dx == 1 then current = 1
-        elseif dx == -1 then current = 3
-        elseif dz == 1 then current = 0
-        elseif dz == -1 then current = 2 end
-
-        if current == facing then break end
+-- Filter for coal
+local coal = {}
+for _, b in ipairs(scanData) do
+    if b.name == "minecraft:coal_ore" then
+        table.insert(coal, b)
     end
 end
 
--- Move turtle to coordinate
-local function gotoPos(tx, ty, tz)
-    local x, y, z = gps.locate()
-    if not x then
-        print("ERROR: No GPS!")
-        return false
-    end
+print("Coal locations:", #coal)
 
-    -- Vertical movement
-    while y < ty do turtle.up(); y = y + 1 end
-    while y > ty do turtle.down(); y = y - 1 end
+-- GPS helper
+local function gpsLoc()
+    local x,y,z = gps.locate(2)
+    if not x then error("GPS signal lost!") end
+    return math.floor(x), math.floor(y), math.floor(z)
+end
+
+-- Movement
+local function moveTo(tx, ty, tz)
+    local x,y,z = gpsLoc()
+
+    -- Y movement first (avoid obstacles)
+    while y < ty do up(); y = y + 1 end
+    while y > ty do down(); y = y - 1 end
 
     -- X movement
-    if tx > x then
-        turtle.setFacing("east")
-        for i = 1, tx - x do digForward() end
-    elseif tx < x then
-        turtle.setFacing("west")
-        for i = 1, x - tx do digForward() end
+    local dx = tx - x
+    if dx ~= 0 then
+        face(dx > 0 and "east" or "west")
+        for i=1, math.abs(dx) do forward() end
     end
 
     -- Z movement
-    if tz > z then
-        turtle.setFacing("south")
-        for i = 1, tz - z do digForward() end
-    elseif tz < z then
-        turtle.setFacing("north")
-        for i = 1, z - tz do digForward() end
+    local dz = tz - z
+    if dz ~= 0 then
+        face(dz > 0 and "south" or "north")
+        for i=1, math.abs(dz) do forward() end
     end
-
-    return true
 end
 
--- MINING LOOP
-for i, v in ipairs(coords) do
-    print("Mining coal", i, "of", #coords)
-    if gotoPos(v.x, v.y, v.z) then
-        turtle.dig()
-        turtle.digUp()
-        turtle.digDown()
-        print("✓ Mined coal at:", v.x, v.y, v.z)
-    else
-        print("✗ Failed to reach:", v.x, v.y, v.z)
-    end
-    sleep(0.2)
+-- Basic dig wrappers
+function forward()
+    while not turtle.forward() do turtle.dig() sleep(0.1) end
 end
+function up()
+    while not turtle.up() do turtle.digUp() sleep(0.1) end
+end
+function down()
+    while not turtle.down() do turtle.digDown() sleep(0.1) end
+end
+
+-- Orientation helper
+local dirs = {north=0, east=1, south=2, west=3}
+local dirNames = {"north","east","south","west"}
+local facing = 0  -- assume north on start
+
+function face(target)
+    local td = dirs[target]
+    while facing ~= td do
+        turtle.turnRight()
+        facing = (facing + 1) % 4
+    end
+end
+
+-- Remember start point
+local startX, startY, startZ = gpsLoc()
+
+-- Mine each coal block
+for i, b in ipairs(coal) do
+    print(string.format("Mining %d/%d: %s", i, #coal, b.name))
+    moveTo(startX + b.x, startY + b.y, startZ + b.z)
+    turtle.dig()
+end
+
+-- Return home
+print("Returning to start...")
+moveTo(startX, startY, startZ)
 
 print("All coal mined!")
