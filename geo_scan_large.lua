@@ -1,50 +1,41 @@
--- === GEO SCAN BLOCK VERSION (geo_scanner_1 ONLY) ===
+local RADIUS = 16   -- your limit
+local TARGET = "minecraft:coal_ore"
 
-local SCAN_RADIUS = 16
-local PROTOCOL = "geo_scan_results"
-
--- Force use of EXACT peripheral name
+print("Connecting to geo_scanner_1...")
 local scanner = peripheral.wrap("geo_scanner_1")
+
 if not scanner then
-    print("ERROR: geo_scanner_1 not found!")
-    return
+    error("GeoScanner not found at geo_scanner_1")
 end
 
--- Find ANY modem for broadcasting
-local modem = peripheral.find("modem")
-if not modem then
-    print("ERROR: No modem found!")
-    return
+print("Scanning radius:", RADIUS)
+local ok, data = scanner.scan(RADIUS)
+
+if not ok then
+    error("Scan failed: " .. tostring(data))
 end
 
-rednet.open(peripheral.getName(modem))
-
-print("Scanning radius:", SCAN_RADIUS)
-local data = scanner.scanBlocks(SCAN_RADIUS)
-
-if not data then
-    print("ERROR: scanBlocks failed")
-    return
-end
-
-print("Blocks scanned:", #data)
+print("Scan complete! Filtering coal...")
 
 local coal = {}
 
-for _, b in ipairs(data) do
-    if b.name == "minecraft:coal_ore" or b.name == "minecraft:deepslate_coal_ore" then
-        -- scanner block returns offsets
-        table.insert(coal, {
-            x = b.offset.x,
-            y = b.offset.y,
-            z = b.offset.z
-        })
+for _, block in ipairs(data) do
+    if block.name == TARGET then
+        table.insert(coal, block)
     end
 end
 
 print("Coal found:", #coal)
 
-print("Broadcasting results...")
-rednet.broadcast(coal, PROTOCOL)
+-- Save results
+local file = fs.open("scan_results.txt", "w")
+for i, b in ipairs(coal) do
+    file.write(string.format(
+        "%d. %s X:%d Y:%d Z:%d Dist=%.1f\n",
+        i, b.name, b.x, b.y, b.z,
+        math.sqrt(b.x*b.x + b.y*b.y + b.z*b.z)
+    ))
+end
+file.close()
 
-print("DONE.")
+print("Saved to scan_results.txt")
