@@ -97,20 +97,51 @@ end
 ----------------------------------
 local function moveTo(tx, ty, tz)
     local x,y,z = gpsLoc()
+    print(string.format("MoveTo: from %d,%d,%d to %d,%d,%d", x, y, z, tx, ty, tz))
 
-    -- Vertical
-    while y < ty do tryUp(); y = y + 1 end
-    while y > ty do tryDown(); y = y - 1 end
+    -- Vertical (update GPS after each move)
+    local moveCount = 0
+    while y < ty do
+        tryUp()
+        x,y,z = gpsLoc()
+        moveCount = moveCount + 1
+        if moveCount > 500 then error("Stuck moving up! At "..y.." trying to reach "..ty) end
+    end
+    moveCount = 0
+    while y > ty do
+        tryDown()
+        x,y,z = gpsLoc()
+        moveCount = moveCount + 1
+        if moveCount > 500 then error("Stuck moving down! At "..y.." trying to reach "..ty) end
+    end
 
-    -- X axis
+    -- X axis (must update ALL coordinates, not just x!)
     if tx > x then turnTo("east") end
     if tx < x then turnTo("west") end
-    while x ~= tx do tryForward(); x = gpsLoc() end
+    moveCount = 0
+    while x ~= tx do
+        tryForward()
+        x,y,z = gpsLoc()  -- FIX: capture all 3 values
+        moveCount = moveCount + 1
+        if moveCount > 500 then
+            error(string.format("Stuck on X axis! At %d,%d,%d trying to reach %d,%d,%d", x, y, z, tx, ty, tz))
+        end
+    end
 
-    -- Z axis
+    -- Z axis (must update ALL coordinates, not just z!)
     if tz > z then turnTo("south") end
     if tz < z then turnTo("north") end
-    while z ~= tz do tryForward(); z = gpsLoc() end
+    moveCount = 0
+    while z ~= tz do
+        tryForward()
+        x,y,z = gpsLoc()  -- FIX: capture all 3 values
+        moveCount = moveCount + 1
+        if moveCount > 500 then
+            error(string.format("Stuck on Z axis! At %d,%d,%d trying to reach %d,%d,%d", x, y, z, tx, ty, tz))
+        end
+    end
+
+    print(string.format("✓ Arrived at %d,%d,%d", x, y, z))
 end
 
 ----------------------------------
