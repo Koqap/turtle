@@ -46,20 +46,14 @@ if type(data) ~= "table" then
     error("Received invalid scan data!")
 end
 
-print("Received", #data, "blocks")
-
-----------------------------------
--- FILTER COAL ORE
-----------------------------------
-local coal = {}
-for _, b in ipairs(data) do
-    if b.name == "minecraft:coal_ore"
-    or b.name == "minecraft:deepslate_coal_ore" then
-        table.insert(coal, b)
-    end
+print("Received", #data, "coal blocks (ABSOLUTE GPS coordinates)")
+if #data > 0 then
+    print(string.format("First coal at GPS: %d, %d, %d", data[1].x, data[1].y, data[1].z))
 end
 
-print("Coal locations:", #coal)
+-- Scanner already filtered for exposed coal only
+local coal = data
+print("Ready to mine", #coal, "exposed coal blocks")
 
 ----------------------------------
 -- GPS HELPERS
@@ -137,12 +131,16 @@ end
 -- Check minimal fuel needed:
 -- (distance to farthest ore × 2 (go+return) + safety)
 local function computeFuelNeeded()
+    local tx, ty, tz = gpsLoc()
     local maxDist = 0
     for _, b in ipairs(coal) do
-        local d = math.abs(b.x) + math.abs(b.y) + math.abs(b.z)
+        -- Calculate Manhattan distance from current position to coal block
+        local d = math.abs(b.x - tx) + math.abs(b.y - ty) + math.abs(b.z - tz)
         if d > maxDist then maxDist = d end
     end
-    return maxDist * 2 + 100   -- safety margin
+    -- Add distance to chest for return trips
+    local chestDist = math.abs(chestX - tx) + math.abs(chestY - ty) + math.abs(chestZ - tz)
+    return maxDist * 2 + chestDist * 2 + 200   -- safety margin for multiple chest trips
 end
 
 local function ensureFuel()
@@ -226,15 +224,11 @@ local function inventoryAlmostFull()
 end
 
 ----------------------------------
--- START POSITION
+-- MINE COAL (using absolute GPS coordinates)
 ----------------------------------
-local sx, sy, sz = gpsLoc()
-
-----------------------------------
--- MINE COAL
-----------------------------------
+print("Starting mining with absolute GPS coordinates...")
 for i, b in ipairs(coal) do
-    print("Mining", i, "/", #coal)
+    print(string.format("Mining %d/%d at GPS: %d, %d, %d", i, #coal, b.x, b.y, b.z))
 
     -- Check if inventory is almost full
     if inventoryAlmostFull() then
@@ -244,7 +238,8 @@ for i, b in ipairs(coal) do
         print("Returning to mining...")
     end
 
-    moveTo(sx + b.x, sy + b.y, sz + b.z)
+    -- Use absolute GPS coordinates directly (scanner already converted them)
+    moveTo(b.x, b.y, b.z)
     turtle.dig()
 end
 

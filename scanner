@@ -18,6 +18,15 @@ end
 -- Open rednet
 rednet.open(peripheral.getName(modemName))
 
+-- Get scanner's GPS position
+print("Getting GPS position...")
+local scannerX, scannerY, scannerZ = gps.locate(3)
+if not scannerX then
+    error("ERROR: GPS signal required!")
+end
+scannerX, scannerY, scannerZ = math.floor(scannerX), math.floor(scannerY), math.floor(scannerZ)
+print(string.format("Scanner at: %d, %d, %d", scannerX, scannerY, scannerZ))
+
 print("Scanning radius:", SCAN_RADIUS)
 local data = scanner.scan(SCAN_RADIUS)
 
@@ -67,7 +76,13 @@ local hiddenCount = 0
 for _, b in ipairs(data) do
     if b.name == "minecraft:coal_ore" or b.name == "minecraft:deepslate_coal_ore" then
         if isExposed(b.x, b.y, b.z) then
-            table.insert(coal, b)
+            -- Convert relative coordinates to absolute GPS coordinates
+            table.insert(coal, {
+                x = scannerX + b.x,
+                y = scannerY + b.y,
+                z = scannerZ + b.z,
+                name = b.name
+            })
         else
             hiddenCount = hiddenCount + 1
         end
@@ -77,7 +92,8 @@ end
 print("Exposed coal found:", #coal)
 print("Hidden coal (skipped):", hiddenCount)
 
-print("Broadcasting over rednet protocol:", PROTOCOL)
+print("Broadcasting ABSOLUTE GPS coordinates...")
+print("Protocol:", PROTOCOL)
 rednet.broadcast(coal, PROTOCOL)
 
 print("Done!")
