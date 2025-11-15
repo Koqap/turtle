@@ -1,0 +1,42 @@
+-- GEO SCAN LARGE (16 radius) – Wireless Broadcast
+
+local SCAN_RADIUS = 16
+local PROTOCOL = "geo_scan_results"
+
+-- Connect scanner
+local scanner = peripheral.wrap("geo_scanner_1")
+if not scanner then
+    error("ERROR: geo_scanner_1 not found!")
+end
+
+-- Find wireless modem
+local modemName = peripheral.find("modem", function(_, m) return m.isWireless() end)
+if not modemName then
+    error("ERROR: No wireless modem found!")
+end
+
+-- Open rednet
+rednet.open(peripheral.getName(modemName))
+
+print("Scanning radius:", SCAN_RADIUS)
+local data = scanner.scan(SCAN_RADIUS)
+
+if type(data) ~= "table" then
+    error("Scan failed: " .. tostring(data))
+end
+
+print("Filtering coal...")
+local coal = {}
+
+for _, b in ipairs(data) do
+    if b.name == "minecraft:coal_ore" or b.name == "minecraft:deepslate_coal_ore" then
+        table.insert(coal, b)
+    end
+end
+
+print("Coal found:", #coal)
+
+print("Broadcasting over rednet protocol:", PROTOCOL)
+rednet.broadcast(coal, PROTOCOL)
+
+print("Done!")
