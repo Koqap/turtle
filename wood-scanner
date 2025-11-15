@@ -1,0 +1,118 @@
+-- WOOD SCANNER - Advanced Peripherals GeoScanner (v1.0)
+-- FEATURES:
+--  * Uses Advanced Peripherals geoScanner
+--  * Detects all wood/log blocks within configurable radius
+--  * Supports vanilla and modded logs
+--  * No movement - scanning only
+--  * Displays all wood locations with coordinates
+
+-- ============ CONFIG ==============
+local RADIUS = 10  -- Scan radius (blocks)
+
+-- ============ UTILITIES ==============
+local function isWoodBlock(blockName)
+    if not blockName then return false end
+    -- Check if block name contains "_log"
+    return string.find(blockName, "_log") ~= nil
+end
+
+-- ============ SCANNER DETECTION ==============
+local function findGeoScanner()
+    if not peripheral then
+        print("ERROR: Peripheral API not available")
+        return nil
+    end
+
+    local scanner = peripheral.find("geoScanner")
+    if not scanner then
+        print("ERROR: GeoScanner not found")
+        print("Make sure Advanced Peripherals is installed")
+        print("and a geoScanner is attached to the turtle")
+        return nil
+    end
+
+    return scanner
+end
+
+-- ============ SCANNING ==============
+local function scanForWood(scanner, radius)
+    print(string.format("\n→ Scanning radius %d blocks...\n", radius))
+
+    local success, blocks = pcall(function()
+        return scanner.scan(radius)
+    end)
+
+    if not success then
+        print("ERROR: Failed to scan")
+        print("Error: " .. tostring(blocks))
+        return {}
+    end
+
+    if not blocks or type(blocks) ~= "table" then
+        print("ERROR: Invalid scan result")
+        return {}
+    end
+
+    local woodBlocks = {}
+    for _, block in ipairs(blocks) do
+        if block.name and isWoodBlock(block.name) then
+            table.insert(woodBlocks, {
+                name = block.name,
+                x = block.x or 0,
+                y = block.y or 0,
+                z = block.z or 0,
+            })
+        end
+    end
+
+    return woodBlocks
+end
+
+local function displayResults(woodBlocks, radius)
+    if #woodBlocks == 0 then
+        print(string.format("No wood detected in radius %d", radius))
+        return
+    end
+
+    print(string.format("╔════════════════════════════════════════╗"))
+    print(string.format("║  FOUND %d WOOD BLOCK(S)                ", #woodBlocks))
+    print(string.format("╚════════════════════════════════════════╝\n"))
+
+    for i, block in ipairs(woodBlocks) do
+        print(string.format("FOUND WOOD → %s", block.name))
+        print(string.format("  X: %d  Y: %d  Z: %d", block.x, block.y, block.z))
+
+        -- Calculate distance
+        local distance = math.sqrt(block.x^2 + block.y^2 + block.z^2)
+        print(string.format("  Distance: %.1f blocks\n", distance))
+    end
+
+    print(string.format("Total: %d wood block(s) detected", #woodBlocks))
+end
+
+-- ============ MAIN ==============
+print("╔════════════════════════════════════════╗")
+print("║  WOOD SCANNER v1.0                     ║")
+print("║  Advanced Peripherals GeoScanner       ║")
+print("╚════════════════════════════════════════╝")
+print(string.format("Scan radius: %d blocks", RADIUS))
+print("Target: All blocks containing '_log'")
+print("════════════════════════════════════════")
+
+-- Find scanner
+local scanner = findGeoScanner()
+if not scanner then
+    print("\n✗ Scanner not found - exiting")
+    return
+end
+
+print("✓ GeoScanner detected")
+
+-- Scan for wood
+local woodBlocks = scanForWood(scanner, RADIUS)
+
+-- Display results
+print("\n════════════════════════════════════════")
+displayResults(woodBlocks, RADIUS)
+print("════════════════════════════════════════\n")
+print("✓ Scan complete")
