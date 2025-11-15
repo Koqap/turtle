@@ -424,8 +424,18 @@ local function smartMiningStep()
     -- Ensure floor (quick check)
     ensureFloorBelow()
 
-    -- Clear 3x3 ahead - only mine blocks that exist
-    smartClear3x3()
+    -- Check if there's a block in front
+    local blockInFront = turtle.detect()
+
+    -- Only do 3x3 clearing if there's a block in front
+    if blockInFront then
+        smartClear3x3()
+    else
+        -- Just clear above if air in front
+        if turtle.detectUp() then
+            turtle.digUp()
+        end
+    end
 
     -- Move forward - if air, just move; if block, dig then move
     if not turtle.forward() then
