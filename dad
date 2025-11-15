@@ -1,0 +1,25 @@
+print("Welcome to GeoMiner installer!")
+print("This program requires \"Advanced Peripherals\" mod installed.")
+print("Please, confirm that you have installed this mod (Y/N)")
+local conf = io.read()
+
+if conf == "N" or conf == "n" then
+    error("Please, install \"Advanced Peripherals\" mod and go back to this installer.")
+end
+
+
+print("Downloading basalt...")
+shell.run("wget run https://raw.githubusercontent.com/Pyroxenium/Basalt2/refs/heads/main/install.lua packed")
+
+if fs.exists("basalt.lua") == false then
+    error("Failed to download basalt. Please, try again.")
+end
+
+print("Downloading GeoMiner...")
+shell.run("wget https://raw.githubusercontent.com/MHDtA-dev/GeoMiner/main/GeoMiner.lua")
+
+if fs.exists("GeoMiner.lua") == false then
+    error("Failed to download GeoMiner. Please, try again.")
+end
+
+print("Done!")
