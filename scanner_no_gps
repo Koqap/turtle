@@ -1,0 +1,94 @@
+-- GEO SCAN LARGE (16 radius) – NO GPS VERSION
+-- Sends RELATIVE coordinates (offsets from scanner)
+
+local SCAN_RADIUS = 16
+local PROTOCOL = "geo_scan_results"
+
+-- Connect scanner
+local scanner = peripheral.wrap("geo_scanner_1")
+if not scanner then
+    error("ERROR: geo_scanner_1 not found!")
+end
+
+-- Find wireless modem
+local modemName = peripheral.find("modem", function(_, m) return m.isWireless() end)
+if not modemName then
+    error("ERROR: No wireless modem found!")
+end
+
+-- Open rednet
+rednet.open(peripheral.getName(modemName))
+
+print("Scanning radius:", SCAN_RADIUS)
+local data = scanner.scan(SCAN_RADIUS)
+
+if type(data) ~= "table" then
+    error("Scan failed: " .. tostring(data))
+end
+
+print("Total blocks scanned:", #data)
+
+-- Create lookup table for fast position checking
+print("Building block map...")
+local blockMap = {}
+for _, b in ipairs(data) do
+    local key = string.format("%d,%d,%d", b.x, b.y, b.z)
+    blockMap[key] = b.name
+end
+
+-- Check if a position is exposed (has air adjacent)
+local function isExposed(x, y, z)
+    -- Check all 6 adjacent positions
+    local adjacent = {
+        {x+1, y, z},   -- east
+        {x-1, y, z},   -- west
+        {x, y+1, z},   -- up
+        {x, y-1, z},   -- down
+        {x, y, z+1},   -- south
+        {x, y, z-1}    -- north
+    }
+
+    for _, pos in ipairs(adjacent) do
+        local key = string.format("%d,%d,%d", pos[1], pos[2], pos[3])
+        local blockName = blockMap[key]
+
+        -- If position not in map (air/void) or is air, it's exposed
+        if not blockName or blockName == "minecraft:air" or blockName == "minecraft:cave_air" then
+            return true
+        end
+    end
+
+    return false
+end
+
+print("Filtering coal (exposed only)...")
+local coal = {}
+local hiddenCount = 0
+
+for _, b in ipairs(data) do
+    if b.name == "minecraft:coal_ore" or b.name == "minecraft:deepslate_coal_ore" then
+        if isExposed(b.x, b.y, b.z) then
+            -- Keep RELATIVE coordinates (offsets from scanner)
+            table.insert(coal, {
+                x = b.x,
+                y = b.y,
+                z = b.z,
+                name = b.name
+            })
+        else
+            hiddenCount = hiddenCount + 1
+        end
+    end
+end
+
+print("Exposed coal found:", #coal)
+print("Hidden coal (skipped):", hiddenCount)
+
+print("Broadcasting RELATIVE coordinates (offsets)...")
+print("Protocol:", PROTOCOL)
+rednet.broadcast(coal, PROTOCOL)
+
+print("Done!")
+print("")
+print("NOTE: Miner must start at SAME POSITION as scanner!")
+print("Or manually move scanner data to account for offset.")

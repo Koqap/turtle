@@ -1,0 +1,269 @@
+-- GEO SCAN AND MINE – NO GPS VERSION
+-- Works without GPS hosts using relative positioning
+
+local PROTOCOL = "geo_scan_results"
+
+----------------------------------
+-- BASE STATION CHEST SETUP
+----------------------------------
+print("Place chest BEHIND turtle, then press ENTER")
+read()
+
+-- Turtle starts facing NORTH (assumption)
+-- Chest is behind (south)
+local chestX, chestY, chestZ = 0, 0, -1
+local facing = 0  -- 0=north, 1=east, 2=south, 3=west
+
+turtle.turnLeft()
+turtle.turnLeft()
+facing = 2  -- now facing south
+
+local ok, chestData = turtle.inspect()
+if not ok or not string.find(chestData.name or "", "chest") then
+    turtle.turnLeft()
+    turtle.turnLeft()
+    error("ERROR: No chest found behind turtle!")
+end
+
+turtle.turnLeft()
+turtle.turnLeft()
+facing = 0  -- back to north
+
+print(string.format("✓ Chest at relative pos: %d, %d, %d", chestX, chestY, chestZ))
+
+----------------------------------
+-- WIRELESS MODEM SETUP
+----------------------------------
+local modemName = peripheral.find("modem", function(_, m) return m.isWireless() end)
+if not modemName then
+    error("ERROR: No wireless modem on turtle!")
+end
+
+rednet.open(peripheral.getName(modemName))
+
+print("Waiting for scan data on protocol:", PROTOCOL)
+local id, data = rednet.receive(PROTOCOL)
+
+if type(data) ~= "table" then
+    error("Received invalid scan data!")
+end
+
+print("Received", #data, "coal blocks (relative coords)")
+if #data > 0 then
+    print(string.format("First coal at offset: %d, %d, %d", data[1].x, data[1].y, data[1].z))
+end
+
+-- Scanner already filtered for exposed coal only
+local coal = data
+print("Ready to mine", #coal, "exposed coal blocks")
+
+----------------------------------
+-- POSITION TRACKING
+----------------------------------
+local posX, posY, posZ = 0, 0, 0
+
+local function updatePos(movement)
+    if movement == "forward" then
+        if facing == 0 then posZ = posZ - 1      -- north
+        elseif facing == 1 then posX = posX + 1  -- east
+        elseif facing == 2 then posZ = posZ + 1  -- south
+        else posX = posX - 1 end                 -- west
+    elseif movement == "back" then
+        if facing == 0 then posZ = posZ + 1
+        elseif facing == 1 then posX = posX - 1
+        elseif facing == 2 then posZ = posZ - 1
+        else posX = posX + 1 end
+    elseif movement == "up" then
+        posY = posY + 1
+    elseif movement == "down" then
+        posY = posY - 1
+    end
+end
+
+----------------------------------
+-- MOVEMENT HELPERS
+----------------------------------
+local function tryForward()
+    while not turtle.forward() do
+        turtle.dig()
+        turtle.attack()
+        sleep(0.1)
+    end
+    updatePos("forward")
+end
+
+local function tryUp()
+    while not turtle.up() do
+        turtle.digUp()
+        turtle.attackUp()
+        sleep(0.1)
+    end
+    updatePos("up")
+end
+
+local function tryDown()
+    while not turtle.down() do
+        turtle.digDown()
+        turtle.attackDown()
+        sleep(0.1)
+    end
+    updatePos("down")
+end
+
+local function turnTo(targetFacing)
+    while facing ~= targetFacing do
+        turtle.turnRight()
+        facing = (facing + 1) % 4
+    end
+end
+
+----------------------------------
+-- NAVIGATION TO COORDINATE
+----------------------------------
+local function moveTo(tx, ty, tz)
+    print(string.format("Moving from %d,%d,%d to %d,%d,%d", posX, posY, posZ, tx, ty, tz))
+
+    -- Move vertically first
+    while posY < ty do tryUp() end
+    while posY > ty do tryDown() end
+
+    -- Move on X axis
+    while posX < tx do
+        turnTo(1)  -- east
+        tryForward()
+    end
+    while posX > tx do
+        turnTo(3)  -- west
+        tryForward()
+    end
+
+    -- Move on Z axis
+    while posZ < tz do
+        turnTo(2)  -- south
+        tryForward()
+    end
+    while posZ > tz do
+        turnTo(0)  -- north
+        tryForward()
+    end
+
+    print(string.format("Arrived at %d,%d,%d", posX, posY, posZ))
+end
+
+----------------------------------
+-- ITEM MANAGEMENT
+----------------------------------
+local KEEP_ITEMS = {
+    "minecraft:coal", "minecraft:charcoal", "minecraft:coal_block",
+    "minecraft:lava_bucket", "minecraft:blaze_rod"
+}
+
+local function isFuelItem(itemName)
+    if not itemName then return false end
+    for _, name in ipairs(KEEP_ITEMS) do
+        if name == itemName then return true end
+    end
+    return false
+end
+
+local function invRefuel()
+    for slot = 1, 16 do
+        turtle.select(slot)
+        if turtle.refuel(0) then
+            turtle.refuel(64)
+        end
+    end
+    turtle.select(1)
+end
+
+local function depositToChest()
+    print("Depositing items to chest...")
+
+    -- Face the chest (south)
+    turnTo(2)
+
+    local deposited = 0
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item and not isFuelItem(item.name) then
+            turtle.select(i)
+            turtle.drop()
+            deposited = deposited + 1
+        end
+    end
+
+    print(string.format("Deposited %d stacks", deposited))
+    return deposited
+end
+
+local function inventoryAlmostFull()
+    local emptySlots = 0
+    for i = 1, 16 do
+        if turtle.getItemCount(i) == 0 then
+            emptySlots = emptySlots + 1
+        end
+    end
+    return emptySlots <= 3
+end
+
+----------------------------------
+-- FUEL CHECK
+----------------------------------
+local function computeFuelNeeded()
+    local maxDist = 0
+    for _, b in ipairs(coal) do
+        -- Distance from chest to coal
+        local d = math.abs(b.x - chestX) + math.abs(b.y - chestY) + math.abs(b.z - chestZ)
+        if d > maxDist then maxDist = d end
+    end
+    return maxDist * 3 + 200  -- safety margin for multiple trips
+end
+
+print("Refueling...")
+invRefuel()
+
+local required = computeFuelNeeded()
+local current = turtle.getFuelLevel()
+print(string.format("Fuel: %d / %d needed", current, required))
+
+if current < required then
+    print("WARNING: May not have enough fuel!")
+    print("Add fuel to inventory and press ENTER")
+    read()
+    invRefuel()
+end
+
+----------------------------------
+-- MINE COAL (relative coords)
+----------------------------------
+print("Starting mining with relative coordinates...")
+for i, b in ipairs(coal) do
+    print(string.format("Mining %d/%d at offset: %d, %d, %d", i, #coal, b.x, b.y, b.z))
+
+    -- Check if inventory is almost full
+    if inventoryAlmostFull() then
+        print("Inventory almost full, returning to chest...")
+        moveTo(chestX, chestY, chestZ)
+        depositToChest()
+        invRefuel()
+        print("Returning to mining...")
+    end
+
+    -- Move to coal location (relative coordinates from scanner)
+    moveTo(b.x, b.y, b.z)
+    turtle.dig()
+    invRefuel()  -- Use coal as fuel
+end
+
+----------------------------------
+-- RETURN TO CHEST
+----------------------------------
+print("Returning to chest...")
+moveTo(chestX, chestY, chestZ)
+depositToChest()
+
+-- Face north for consistency
+turnTo(0)
+
+print("All coal mined!")
+print(string.format("Final position: %d, %d, %d", posX, posY, posZ))
