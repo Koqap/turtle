@@ -69,13 +69,20 @@ local function isExposed(x, y, z)
     return false
 end
 
-print("Filtering coal (exposed only)...")
+print("Filtering coal (exposed only, same level or above)...")
 local coal = {}
 local hiddenCount = 0
+local belowCount = 0
 
 for _, b in ipairs(data) do
     if b.name == "minecraft:coal_ore" or b.name == "minecraft:deepslate_coal_ore" then
-        if isExposed(b.x, b.y, b.z) then
+        -- Check if coal is at same level or above scanner (not below)
+        local absoluteY = scannerY + b.y
+
+        if absoluteY < scannerY then
+            -- Coal is below scanner - skip it
+            belowCount = belowCount + 1
+        elseif isExposed(b.x, b.y, b.z) then
             -- Convert relative coordinates to absolute GPS coordinates
             table.insert(coal, {
                 x = scannerX + b.x,
@@ -91,6 +98,7 @@ end
 
 print("Exposed coal found:", #coal)
 print("Hidden coal (skipped):", hiddenCount)
+print("Below scanner level (skipped):", belowCount)
 
 ----------------------------------
 -- SORT COAL FOR EFFICIENT MINING
