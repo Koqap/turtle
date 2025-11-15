@@ -1,0 +1,507 @@
+-- MINEMASTER 3x3 ULTRA-FAST — No-Check Speed Mining (v5.0)
+-- SPEED OPTIMIZATIONS:
+--  * Mines directly without checking if blocks exist first
+--  * No pre-inspection - just dig and move
+--  * 4-chunk segments with auto-return
+--  * Lane shifting after each segment
+--  * Smart inventory (keeps blocks, deposits everything else)
+--  * Fast pathfinding with position tracking
+
+-- ============ CONFIG ==============
+local CHUNK_LIMIT = 4                
+local BLOCKS_PER_CHUNK = 16          
+local SEGMENT_LENGTH = CHUNK_LIMIT * BLOCKS_PER_CHUNK  -- 64 blocks
+local LANE_WIDTH = 3                 
+local TORCH_DIST = 8                 
+local MIN_FUEL = 100                 
+local MAX_RETRY = 3                  -- reduced retries for speed
+
+-- Items to KEEP
+local KEEP_ITEMS = {
+    "minecraft:cobblestone", "minecraft:cobbled_deepslate",
+    "minecraft:deepslate", "minecraft:stone", "minecraft:dirt",
+    "minecraft:gravel", "minecraft:andesite", "minecraft:diorite",
+    "minecraft:granite", "minecraft:tuff", "minecraft:torch",
+    "minecraft:coal", "minecraft:charcoal",
+}
+
+local FUEL_ITEMS = {
+    "minecraft:coal", "minecraft:charcoal", "minecraft:coal_block",
+    "minecraft:lava_bucket", "minecraft:blaze_rod",
+}
+
+local PREFER_FLOOR = {               
+    "minecraft:cobblestone", "minecraft:cobbled_deepslate",
+    "minecraft:deepslate", "minecraft:dirt",
+}
+
+-- ============ STATE ==============
+local chestPos = {x=0, y=0, z=0, facing=0}
+local currentPos = {x=0, y=0, z=0, facing=0}
+local miningState = {
+    segmentBlocks = 0,
+    totalSegments = 0,
+    currentLane = 0,
+    totalBlocksMined = 0,
+}
+
+-- ============ POSITION TRACKING ==============
+local function updatePosition(movement)
+    if movement == "forward" then
+        if currentPos.facing == 0 then currentPos.z = currentPos.z - 1
+        elseif currentPos.facing == 1 then currentPos.x = currentPos.x + 1
+        elseif currentPos.facing == 2 then currentPos.z = currentPos.z + 1
+        else currentPos.x = currentPos.x - 1 end
+    elseif movement == "back" then
+        if currentPos.facing == 0 then currentPos.z = currentPos.z + 1
+        elseif currentPos.facing == 1 then currentPos.x = currentPos.x - 1
+        elseif currentPos.facing == 2 then currentPos.z = currentPos.z - 1
+        else currentPos.x = currentPos.x + 1 end
+    elseif movement == "up" then
+        currentPos.y = currentPos.y + 1
+    elseif movement == "down" then
+        currentPos.y = currentPos.y - 1
+    elseif movement == "turnLeft" then
+        currentPos.facing = (currentPos.facing - 1) % 4
+    elseif movement == "turnRight" then
+        currentPos.facing = (currentPos.facing + 1) % 4
+    end
+end
+
+local function calculatePathToChest()
+    local dx = chestPos.x - currentPos.x
+    local dy = chestPos.y - currentPos.y
+    local dz = chestPos.z - currentPos.z
+    return dx, dy, dz
+end
+
+-- ============ NAVIGATION ==============
+local function navigateToChest()
+    local dx, dy, dz = calculatePathToChest()
+    
+    while dy > 0 do
+        if turtle.up() then updatePosition("up"); dy = dy - 1
+        else turtle.digUp(); sleep(0.2) end
+    end
+    while dy < 0 do
+        if turtle.down() then updatePosition("down"); dy = dy + 1
+        else turtle.digDown(); sleep(0.2) end
+    end
+    
+    if dx ~= 0 then
+        local targetFacing = dx > 0 and 1 or 3
+        while currentPos.facing ~= targetFacing do
+            turtle.turnRight(); updatePosition("turnRight")
+        end
+        for i = 1, math.abs(dx) do
+            while not turtle.forward() do
+                turtle.dig(); turtle.attack(); sleep(0.2)
+            end
+            updatePosition("forward")
+        end
+    end
+    
+    if dz ~= 0 then
+        local targetFacing = dz > 0 and 2 or 0
+        while currentPos.facing ~= targetFacing do
+            turtle.turnRight(); updatePosition("turnRight")
+        end
+        for i = 1, math.abs(dz) do
+            while not turtle.forward() do
+                turtle.dig(); turtle.attack(); sleep(0.2)
+            end
+            updatePosition("forward")
+        end
+    end
+    
+    while currentPos.facing ~= chestPos.facing do
+        turtle.turnRight(); updatePosition("turnRight")
+    end
+end
+
+local function navigateToPosition(targetX, targetY, targetZ, targetFacing)
+    local dx = targetX - currentPos.x
+    local dy = targetY - currentPos.y
+    local dz = targetZ - currentPos.z
+    
+    while currentPos.facing ~= 0 do
+        turtle.turnRight(); updatePosition("turnRight")
+    end
+    
+    if dz ~= 0 then
+        local face = dz > 0 and 2 or 0
+        while currentPos.facing ~= face do
+            turtle.turnRight(); updatePosition("turnRight")
+        end
+        for i = 1, math.abs(dz) do
+            while not turtle.forward() do turtle.dig(); sleep(0.2) end
+            updatePosition("forward")
+        end
+    end
+    
+    if dx ~= 0 then
+        local face = dx > 0 and 1 or 3
+        while currentPos.facing ~= face do
+            turtle.turnRight(); updatePosition("turnRight")
+        end
+        for i = 1, math.abs(dx) do
+            while not turtle.forward() do turtle.dig(); sleep(0.2) end
+            updatePosition("forward")
+        end
+    end
+    
+    while dy > 0 do
+        if turtle.up() then updatePosition("up"); dy = dy - 1
+        else turtle.digUp(); sleep(0.2) end
+    end
+    while dy < 0 do
+        if turtle.down() then updatePosition("down"); dy = dy + 1
+        else turtle.digDown(); sleep(0.2) end
+    end
+    
+    while currentPos.facing ~= targetFacing do
+        turtle.turnRight(); updatePosition("turnRight")
+    end
+end
+
+-- ============ ITEM CLASSIFICATION ==============
+local function isKeepItem(itemName)
+    if not itemName then return false end
+    for _, name in ipairs(KEEP_ITEMS) do
+        if name == itemName then return true end
+    end
+    return false
+end
+
+local function isFuelItem(itemName)
+    if not itemName then return false end
+    for _, name in ipairs(FUEL_ITEMS) do
+        if name == itemName then return true end
+    end
+    return false
+end
+
+-- ============ UTILITIES ==============
+local function findItemSlot(name)
+    for i=1,16 do
+        local d = turtle.getItemDetail(i)
+        if d and d.name == name then return i end
+    end
+    return nil
+end
+
+local function findAnySlotByNames(names)
+    for _, nm in ipairs(names) do
+        local s = findItemSlot(nm)
+        if s then return s, nm end
+    end
+    return nil, nil
+end
+
+local function inventoryFull()
+    for i=1,16 do
+        if turtle.getItemCount(i) == 0 then return false end
+    end
+    return true
+end
+
+local function calculateFuelNeeded()
+    local dx, dy, dz = calculatePathToChest()
+    return math.abs(dx) + math.abs(dy) + math.abs(dz) + 50
+end
+
+-- ============ MOVEMENT ==============
+local function safeForward()
+    for attempt=1, MAX_RETRY do
+        if turtle.forward() then
+            updatePosition("forward")
+            return true
+        else
+            turtle.dig()
+            turtle.attack()
+            sleep(0.1)
+        end
+    end
+    return false
+end
+
+local function safeTurnLeft()
+    turtle.turnLeft()
+    updatePosition("turnLeft")
+end
+
+local function safeTurnRight()
+    turtle.turnRight()
+    updatePosition("turnRight")
+end
+
+-- ============ ULTRA-FAST 3x3 CLEARING ==============
+-- Just dig everything without checking - MAXIMUM SPEED
+local function fastClear3x3()
+    -- Dig above current position
+    turtle.digUp()
+    
+    -- Dig forward column (center)
+    turtle.dig()
+    turtle.digUp()
+    
+    -- Dig left column
+    safeTurnLeft()
+    turtle.dig()
+    turtle.digUp()
+    safeTurnRight()
+    
+    -- Dig right column
+    safeTurnRight()
+    turtle.dig()
+    turtle.digUp()
+    safeTurnLeft()
+end
+
+-- ============ FLOOR MANAGEMENT ==============
+local function ensureFloorBelow()
+    local ok = turtle.inspectDown()
+    if ok then return true end
+    
+    local slot = findAnySlotByNames(PREFER_FLOOR)
+    if slot then
+        turtle.select(slot)
+        turtle.placeDown()
+        return true
+    end
+    return false
+end
+
+-- ============ CHEST OPERATIONS ==============
+local function depositItemsToChest()
+    turtle.turnLeft(); turtle.turnLeft()
+    local deposited = 0
+    for i=1,16 do
+        local item = turtle.getItemDetail(i)
+        if item then
+            if not isKeepItem(item.name) and not isFuelItem(item.name) then
+                turtle.select(i)
+                local countBefore = item.count
+                turtle.drop()
+                deposited = deposited + countBefore
+            end
+        end
+    end
+    turtle.turnLeft(); turtle.turnLeft()
+    return deposited
+end
+
+local function depositEmptyBuckets()
+    turtle.turnLeft(); turtle.turnLeft()
+    for i=1,16 do
+        local d = turtle.getItemDetail(i)
+        if d and d.name == "minecraft:bucket" then
+            turtle.select(i)
+            turtle.drop()
+        end
+    end
+    turtle.turnLeft(); turtle.turnLeft()
+end
+
+local function takeFuelFromChest()
+    turtle.turnLeft(); turtle.turnLeft()
+    local fuelTaken = 0
+    for slot=1,16 do
+        if turtle.getItemCount(slot) == 0 then
+            turtle.select(slot)
+            turtle.suck(64)
+            local item = turtle.getItemDetail(slot)
+            if item then
+                if isFuelItem(item.name) then
+                    fuelTaken = fuelTaken + item.count
+                else
+                    turtle.drop()
+                end
+            end
+        end
+    end
+    turtle.turnLeft(); turtle.turnLeft()
+    return fuelTaken
+end
+
+local function doAutoRefuel()
+    local fuelBefore = turtle.getFuelLevel()
+    for i=1,16 do
+        local item = turtle.getItemDetail(i)
+        if item and isFuelItem(item.name) then
+            turtle.select(i)
+            turtle.refuel()
+        end
+    end
+    return turtle.getFuelLevel() - fuelBefore
+end
+
+-- ============ SEGMENT MANAGEMENT ==============
+local function returnToChestAndRefuel()
+    print("╔════════════════════════════════════════╗")
+    print(string.format("║  SEGMENT %d DONE (%d blocks)           ║", miningState.totalSegments + 1, SEGMENT_LENGTH))
+    print("╚════════════════════════════════════════╝")
+    
+    local resumeX, resumeY, resumeZ = currentPos.x, currentPos.y, currentPos.z
+    local resumeFacing = currentPos.facing
+    
+    print("→ Navigating to chest...")
+    navigateToChest()
+    
+    print("→ Depositing items...")
+    local deposited = depositItemsToChest()
+    print(string.format("  ✓ Deposited %d items", deposited))
+    
+    depositEmptyBuckets()
+    
+    print("→ Taking fuel...")
+    local fuelTaken = takeFuelFromChest()
+    print(string.format("  ✓ Got %d fuel", fuelTaken))
+    
+    print("→ Refueling...")
+    doAutoRefuel()
+    print(string.format("  ✓ Fuel: %d", turtle.getFuelLevel()))
+    
+    depositEmptyBuckets()
+    
+    print("→ Returning to mining...")
+    navigateToPosition(resumeX, resumeY, resumeZ, resumeFacing)
+    
+    miningState.totalSegments = miningState.totalSegments + 1
+    miningState.segmentBlocks = 0
+    
+    print(string.format("✓ Segment %d complete! Total blocks: %d\n", miningState.totalSegments, miningState.totalBlocksMined))
+    return true
+end
+
+local function shiftToNextLane()
+    print("\n╔════════════════════════════════════════╗")
+    print(string.format("║  SHIFTING TO LANE %d                   ║", miningState.currentLane + 1))
+    print("╚════════════════════════════════════════╝")
+    
+    navigateToChest()
+    depositItemsToChest()
+    depositEmptyBuckets()
+    takeFuelFromChest()
+    doAutoRefuel()
+    depositEmptyBuckets()
+    
+    while currentPos.facing ~= 0 do
+        turtle.turnRight(); updatePosition("turnRight")
+    end
+    
+    if not safeForward() then return false end
+    safeTurnRight()
+    
+    for i = 1, LANE_WIDTH do
+        if not safeForward() then return false end
+    end
+    
+    safeTurnLeft()
+    miningState.currentLane = miningState.currentLane + 1
+    miningState.segmentBlocks = 0
+    
+    print(string.format("✓ Now in lane %d\n", miningState.currentLane))
+    return true
+end
+
+-- ============ ULTRA-FAST MINING STEP ==============
+local function fastMiningStep()
+    -- Ensure floor (quick check)
+    ensureFloorBelow()
+    
+    -- Clear 3x3 ahead WITHOUT checking - just dig everything
+    fastClear3x3()
+    
+    -- Move forward immediately
+    if not safeForward() then
+        turtle.dig()
+        turtle.attack()
+        if not safeForward() then
+            print("!! Blocked")
+            return false
+        end
+    end
+    
+    -- Clear above and ensure floor at new position
+    turtle.digUp()
+    ensureFloorBelow()
+    
+    miningState.segmentBlocks = miningState.segmentBlocks + 1
+    miningState.totalBlocksMined = miningState.totalBlocksMined + 1
+    
+    -- Place torch
+    if TORCH_DIST > 0 and (miningState.segmentBlocks % TORCH_DIST == 0) then
+        local torchSlot = findItemSlot("minecraft:torch")
+        if torchSlot then
+            turtle.select(torchSlot)
+            turtle.placeDown()
+        end
+    end
+    
+    -- Check if segment complete (64 blocks = 4 chunks)
+    if miningState.segmentBlocks >= SEGMENT_LENGTH then
+        returnToChestAndRefuel()
+        shiftToNextLane()
+    end
+    
+    -- Emergency checks
+    local fuelNeeded = calculateFuelNeeded()
+    if inventoryFull() or turtle.getFuelLevel() < fuelNeeded + MIN_FUEL then
+        print("⚠️  Emergency return")
+        returnToChestAndRefuel()
+    end
+    
+    return true
+end
+
+-- ============ INITIALIZATION ==============
+local function initialChecks()
+    if not turtle.getItemDetail then
+        print("ERROR: Requires Mining Turtle")
+        return false
+    end
+    
+    turtle.turnLeft(); turtle.turnLeft()
+    local ok, data = turtle.inspect()
+    
+    if not ok or not string.find(data.name or "", "chest") then
+        turtle.turnLeft(); turtle.turnLeft()
+        print("ERROR: Place chest BEHIND turtle")
+        return false
+    end
+    
+    turtle.turnLeft(); turtle.turnLeft()
+    chestPos = {x=0, y=0, z=-1, facing=0}
+    
+    print(string.format("✓ Chest at: %d,%d,%d", chestPos.x, chestPos.y, chestPos.z))
+    
+    takeFuelFromChest()
+    doAutoRefuel()
+    
+    return true
+end
+
+-- ============ MAIN ==============
+print("╔════════════════════════════════════════╗")
+print("║  MINEMASTER ULTRA-FAST v5.0            ║")
+print("╚════════════════════════════════════════╝")
+print("Mode: SPEED (no pre-checking)")
+print(string.format("Segment: %d chunks (%d blocks)", CHUNK_LIMIT, SEGMENT_LENGTH))
+print(string.format("Lane width: %d blocks", LANE_WIDTH))
+print(string.format("Pattern: Mine 64 → Return → Shift → Repeat"))
+print("════════════════════════════════════════\n")
+
+if not initialChecks() then return end
+
+print("🚀 Starting ULTRA-FAST mining...\n")
+
+-- Main loop
+while true do
+    local ok = fastMiningStep()
+    if not ok then
+        print("!! Failure. Returning...")
+        returnToChestAndRefuel()
+        shiftToNextLane()
+    end
+end
