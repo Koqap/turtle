@@ -483,15 +483,17 @@ local function initialChecks()
     
     turtle.turnLeft(); turtle.turnLeft()
     local ok, data = turtle.inspect()
-    
+
     if not ok or not string.find(data.name or "", "chest") then
         turtle.turnLeft(); turtle.turnLeft()
         print("ERROR: Place chest BEHIND turtle")
         return false
     end
-    
+
     turtle.turnLeft(); turtle.turnLeft()
-    chestPos = {x=0, y=0, z=-1, facing=0}
+    -- chestPos is where the turtle should BE to access the chest (starting position)
+    -- NOT the chest block's position
+    chestPos = {x=0, y=0, z=0, facing=0}
     
     print(string.format("✓ Chest at: %d,%d,%d", chestPos.x, chestPos.y, chestPos.z))
     
