@@ -1,6 +1,33 @@
--- GEO SCAN AND MINE – Wireless Coal Miner + Auto Refuel First
+-- GEO SCAN AND MINE – Wireless Coal Miner + Auto Refuel + Base Station
 
 local PROTOCOL = "geo_scan_results"
+
+----------------------------------
+-- BASE STATION CHEST SETUP
+----------------------------------
+print("Place chest BEHIND turtle, then press ENTER")
+read()
+
+turtle.turnLeft()
+turtle.turnLeft()
+
+local ok, chestData = turtle.inspect()
+if not ok or not string.find(chestData.name or "", "chest") then
+    error("ERROR: No chest found behind turtle!")
+end
+
+print("✓ Chest detected!")
+local chestX, chestY, chestZ = gps.locate(3)
+if not chestX then error("ERROR: GPS signal required!") end
+chestX, chestY, chestZ = math.floor(chestX), math.floor(chestY), math.floor(chestZ)
+
+-- Calculate chest position (1 block behind)
+chestZ = chestZ - 1
+
+turtle.turnLeft()
+turtle.turnLeft()
+
+print(string.format("Chest at: %d, %d, %d", chestX, chestY, chestZ))
 
 ----------------------------------
 -- WIRELESS MODEM SETUP
@@ -148,6 +175,57 @@ end
 ensureFuel()
 
 ----------------------------------
+-- ITEM MANAGEMENT
+----------------------------------
+local KEEP_ITEMS = {
+    "minecraft:coal", "minecraft:charcoal", "minecraft:coal_block",
+    "minecraft:lava_bucket", "minecraft:blaze_rod"
+}
+
+local function isFuelItem(itemName)
+    if not itemName then return false end
+    for _, name in ipairs(KEEP_ITEMS) do
+        if name == itemName then return true end
+    end
+    return false
+end
+
+local function depositToChest()
+    print("Depositing items to chest...")
+
+    -- Face the chest (behind = turn around)
+    turtle.turnLeft()
+    turtle.turnLeft()
+
+    local deposited = 0
+    for i = 1, 16 do
+        local item = turtle.getItemDetail(i)
+        if item and not isFuelItem(item.name) then
+            turtle.select(i)
+            turtle.drop()
+            deposited = deposited + 1
+        end
+    end
+
+    -- Turn back
+    turtle.turnLeft()
+    turtle.turnLeft()
+
+    print(string.format("Deposited %d stacks", deposited))
+    return deposited
+end
+
+local function inventoryAlmostFull()
+    local emptySlots = 0
+    for i = 1, 16 do
+        if turtle.getItemCount(i) == 0 then
+            emptySlots = emptySlots + 1
+        end
+    end
+    return emptySlots <= 3
+end
+
+----------------------------------
 -- START POSITION
 ----------------------------------
 local sx, sy, sz = gpsLoc()
@@ -157,14 +235,24 @@ local sx, sy, sz = gpsLoc()
 ----------------------------------
 for i, b in ipairs(coal) do
     print("Mining", i, "/", #coal)
+
+    -- Check if inventory is almost full
+    if inventoryAlmostFull() then
+        print("Inventory almost full, returning to chest...")
+        moveTo(chestX, chestY, chestZ)
+        depositToChest()
+        print("Returning to mining...")
+    end
+
     moveTo(sx + b.x, sy + b.y, sz + b.z)
     turtle.dig()
 end
 
 ----------------------------------
--- RETURN TO START
+-- RETURN TO CHEST
 ----------------------------------
-print("Returning to start...")
-moveTo(sx, sy, sz)
+print("Returning to chest...")
+moveTo(chestX, chestY, chestZ)
+depositToChest()
 
 print("All coal mined!")
