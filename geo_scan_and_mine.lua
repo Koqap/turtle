@@ -1,95 +1,112 @@
--- GEO SCAN AND MINE - Mining Turtle with Remote Scanner (v1.0 adapted)
--- FEATURES:
---   * Calls Geo Scanner via network peripheral
---   * Reads coordinates list
---   * Navigates via GPS
---   * Mines the target ores
+-- GEO MINE - Receives wireless scan results and mines coal
 
-local SCANNER_NAME = "geo_scanner_1"     -- adjust if needed
-local REDNET_PROTOCOL = "geo_scan_results"  -- must match scanner broadcast
-local COORDS_FILE = "scan_results.txt"
+local PROTOCOL = "geo_scan_results"
 
-local TARGET_ORES = {
-    "minecraft:coal_ore", "minecraft:deepslate_coal_ore", "minecraft:coal_block"
-}
-
-local stats = { scanned = 0, mined = 0, failed = 0 }
-
--- Helpers
-local function isTarget(name)
-    for _, t in ipairs(TARGET_ORES) do
-        if name == t then return true end
-    end
-    return false
+-- Open modem (adjust side if needed, e.g., "left")
+local modemSide = peripheral.find("modem")
+if not modemSide then
+    print("ERROR: No wireless modem on turtle!")
+    return
 end
 
+rednet.open(peripheral.getName(modemSide))
+
+print("Waiting for scan data...")
+local id, coords = rednet.receive(PROTOCOL)
+
+if not coords or type(coords) ~= "table" then
+    print("ERROR: Invalid scan data received.")
+    return
+end
+
+print("Received", #coords, "coal locations!")
+sleep(1)
+
+-- Helper: Dig forward safely
 local function digForward()
     while turtle.detect() do turtle.dig() end
     while not turtle.forward() do turtle.attack() end
 end
 
-local function gotoPos(x, y, z)
-    local cx, cy, cz = gps.locate()
-    if not cx then
-        print("ERROR: No GPS position!")
+-- Helper: Turn to exact compass direction
+function turtle.setFacing(dir)
+    local directions = {
+        north = 2,
+        south = 0,
+        west  = 3,
+        east  = 1,
+    }
+
+    local facing = directions[dir]
+    if not facing then return end
+
+    while true do
+        local x1, y1, z1 = gps.locate()
+        sleep(0.1)
+        turtle.turnRight()
+        local x2, y2, z2 = gps.locate()
+        sleep(0.1)
+
+        if not x1 or not x2 then break end
+
+        local dx = x2 - x1
+        local dz = z2 - z1
+
+        local current
+        if dx == 1 then current = 1
+        elseif dx == -1 then current = 3
+        elseif dz == 1 then current = 0
+        elseif dz == -1 then current = 2 end
+
+        if current == facing then break end
+    end
+end
+
+-- Move turtle to coordinate
+local function gotoPos(tx, ty, tz)
+    local x, y, z = gps.locate()
+    if not x then
+        print("ERROR: No GPS!")
         return false
     end
-    -- Vertical
-    while cy < y do turtle.up(); cy = cy + 1 end
-    while cy > y do turtle.down(); cy = cy - 1 end
-    -- X
-    if x > cx then
+
+    -- Vertical movement
+    while y < ty do turtle.up(); y = y + 1 end
+    while y > ty do turtle.down(); y = y - 1 end
+
+    -- X movement
+    if tx > x then
         turtle.setFacing("east")
-        for i = 1, x - cx do digForward() end
-    elseif x < cx then
+        for i = 1, tx - x do digForward() end
+    elseif tx < x then
         turtle.setFacing("west")
-        for i = 1, cx - x do digForward() end
+        for i = 1, x - tx do digForward() end
     end
-    -- Z
-    if z > cz then
+
+    -- Z movement
+    if tz > z then
         turtle.setFacing("south")
-        for i = 1, z - cz do digForward() end
-    elseif z < cz then
+        for i = 1, tz - z do digForward() end
+    elseif tz < z then
         turtle.setFacing("north")
-        for i = 1, cz - z do digForward() end
+        for i = 1, z - tz do digForward() end
     end
+
     return true
 end
 
--- Read coords from file
-local coords = {}
-local f = fs.open(COORDS_FILE, "r")
-if not f then
-    print("ERROR: Could not open " .. COORDS_FILE)
-    return
-end
-while true do
-    local line = f.readLine()
-    if not line then break end
-    local x, y, z = line:match("(-?%d+) (-?%d+) (-?%d+)")
-    if x and y and z then
-        table.insert(coords, { x = tonumber(x), y = tonumber(y), z = tonumber(z) })
-    end
-end
-f.close()
-
-print("Loaded " .. #coords .. " target coordinates.")
-
--- Perform mining
+-- MINING LOOP
 for i, v in ipairs(coords) do
-    print("Mining target " .. i .. "/" .. #coords .. " at (" .. v.x .. "," .. v.y .. "," .. v.z .. ")")
-    if not gotoPos(v.x, v.y, v.z) then
-        print("!! Failed to reach target.")
-        stats.failed = stats.failed + 1
-    else
+    print("Mining coal", i, "of", #coords)
+    if gotoPos(v.x, v.y, v.z) then
         turtle.dig()
         turtle.digUp()
         turtle.digDown()
-        stats.mined = stats.mined + 1
-        print("✓ Mined target!")
+        print("✓ Mined coal at:", v.x, v.y, v.z)
+    else
+        print("✗ Failed to reach:", v.x, v.y, v.z)
     end
     sleep(0.2)
 end
 
-print("Mining complete!")
-print("Mined: " .. stats.mined .. " targets; Failed: " .. stats.failed)
+print("All coal mined!")
