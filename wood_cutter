@@ -150,19 +150,36 @@ local function detectFacing()
 
     local x2, y2, z2 = gpsLoc()
 
-    -- Move back
-    turtle.back()
-
     -- Determine direction based on coordinate change
     local dx = x2 - x1
     local dz = z2 - z1
 
-    if dz == -1 then return 0 end  -- Moved north (Z decreases)
-    if dx == 1 then return 1 end   -- Moved east (X increases)
-    if dz == 1 then return 2 end   -- Moved south (Z increases)
-    if dx == -1 then return 3 end  -- Moved west (X decreases)
+    local detectedFacing = nil
+    if dz == -1 then detectedFacing = 0      -- Moved north (Z decreases)
+    elseif dx == 1 then detectedFacing = 1   -- Moved east (X increases)
+    elseif dz == 1 then detectedFacing = 2   -- Moved south (Z increases)
+    elseif dx == -1 then detectedFacing = 3  -- Moved west (X decreases)
+    end
 
-    return nil  -- Couldn't determine
+    -- Move back to original position (chest might be blocking turtle.back())
+    -- Turn around, move forward, turn back
+    turtle.turnRight()
+    turtle.turnRight()
+    if not turtle.forward() then
+        -- Something blocking behind us, try digging (but not the chest!)
+        local success, data = turtle.inspect()
+        if success and not string.find(data.name or "", "chest") then
+            turtle.dig()
+            turtle.forward()
+        else
+            -- It's a chest or can't inspect, just force forward
+            turtle.forward()
+        end
+    end
+    turtle.turnRight()
+    turtle.turnRight()
+
+    return detectedFacing
 end
 
 print("Detecting facing direction...")
