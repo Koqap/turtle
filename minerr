@@ -70,13 +70,27 @@ end
 local function detectFacing()
     local x1, y1, z1 = gpsLoc()
 
-    -- Try to move forward
-    if not turtle.forward() then
-        -- Can't move, try digging
-        turtle.dig()
-        if not turtle.forward() then
-            return nil  -- Can't determine facing
+    -- Try to move forward (try multiple times)
+    local moved = false
+    for attempt = 1, 5 do
+        if turtle.forward() then
+            moved = true
+            break
         end
+
+        -- Try digging what's in front
+        turtle.dig()
+        turtle.attack()  -- In case there's an entity
+        sleep(0.3)
+    end
+
+    if not moved then
+        print("ERROR: Cannot move forward to detect facing!")
+        print("Please ensure:")
+        print("  1. There is clearable space in front of turtle")
+        print("  2. Turtle is not against bedrock/obsidian")
+        print("  3. Turtle has a tool equipped if needed")
+        return nil
     end
 
     local x2, y2, z2 = gpsLoc()
@@ -99,7 +113,7 @@ end
 print("Detecting facing direction...")
 local facing = detectFacing()
 if not facing then
-    error("ERROR: Could not detect facing direction! Clear space in front of turtle.")
+    error("ERROR: Could not detect facing direction! See messages above.")
 end
 
 local dirNames = { [0]="north", [1]="east", [2]="south", [3]="west" }
