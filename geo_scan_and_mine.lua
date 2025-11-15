@@ -7,8 +7,8 @@
 --  * Handles GPS failures gracefully
 
 -- ============ CONFIG ==============
-local RADIUS = 48                    -- Large scan radius for caves
-local SCANNER_NAME = "geo_scanner_0" -- Scanner peripheral on network
+local RADIUS = 16                    -- Large scan radius for caves
+local SCANNER_NAME = "geo_scanner_1" -- Scanner peripheral on network
 local REDNET_PROTOCOL = "geo_mining" -- Rednet protocol
 
 -- Target ores to mine
