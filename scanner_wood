@@ -1,0 +1,231 @@
+-- GEO SCAN LARGE (16 radius) – WOOD SCANNER
+-- Wireless Broadcast - Scans for wood/logs
+
+----------------------------------
+-- CONFIGURATION
+----------------------------------
+local SCAN_RADIUS = 16
+local PROTOCOL = "geo_scan_results"
+
+-- Configure which wood type to scan for
+-- Options: "oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove", "cherry", "all"
+local WOOD_TYPE = "all"  -- Change this to scan for specific wood types
+
+-- Wood block names (both log and wood variants)
+local WOOD_BLOCKS = {
+    oak = {"minecraft:oak_log", "minecraft:oak_wood", "minecraft:stripped_oak_log", "minecraft:stripped_oak_wood"},
+    spruce = {"minecraft:spruce_log", "minecraft:spruce_wood", "minecraft:stripped_spruce_log", "minecraft:stripped_spruce_wood"},
+    birch = {"minecraft:birch_log", "minecraft:birch_wood", "minecraft:stripped_birch_log", "minecraft:stripped_birch_wood"},
+    jungle = {"minecraft:jungle_log", "minecraft:jungle_wood", "minecraft:stripped_jungle_log", "minecraft:stripped_jungle_wood"},
+    acacia = {"minecraft:acacia_log", "minecraft:acacia_wood", "minecraft:stripped_acacia_log", "minecraft:stripped_acacia_wood"},
+    dark_oak = {"minecraft:dark_oak_log", "minecraft:dark_oak_wood", "minecraft:stripped_dark_oak_log", "minecraft:stripped_dark_oak_wood"},
+    mangrove = {"minecraft:mangrove_log", "minecraft:mangrove_wood", "minecraft:stripped_mangrove_log", "minecraft:stripped_mangrove_wood"},
+    cherry = {"minecraft:cherry_log", "minecraft:cherry_wood", "minecraft:stripped_cherry_log", "minecraft:stripped_cherry_wood"},
+}
+
+-- Build target wood list
+local targetWoods = {}
+if WOOD_TYPE == "all" then
+    -- Include all wood types
+    for _, woodList in pairs(WOOD_BLOCKS) do
+        for _, woodName in ipairs(woodList) do
+            table.insert(targetWoods, woodName)
+        end
+    end
+else
+    targetWoods = WOOD_BLOCKS[WOOD_TYPE]
+    if not targetWoods then
+        error("ERROR: Invalid WOOD_TYPE '" .. WOOD_TYPE .. "'. Valid options: oak, spruce, birch, jungle, acacia, dark_oak, mangrove, cherry, all")
+    end
+end
+
+print("═══════════════════════════════════")
+if WOOD_TYPE == "all" then
+    print("  SCANNING FOR: ALL WOOD TYPES")
+else
+    print(string.format("  SCANNING FOR: %s WOOD", string.upper(WOOD_TYPE)))
+end
+print("═══════════════════════════════════")
+
+-- Connect scanner
+local scanner = peripheral.wrap("geo_scanner_1")
+if not scanner then
+    error("ERROR: geo_scanner_1 not found!")
+end
+
+-- Find wireless modem
+local modemName = peripheral.find("modem", function(_, m) return m.isWireless() end)
+if not modemName then
+    error("ERROR: No wireless modem found!")
+end
+
+-- Open rednet
+rednet.open(peripheral.getName(modemName))
+
+-- Get scanner's GPS position
+print("Getting GPS position...")
+local scannerX, scannerY, scannerZ = gps.locate(3)
+if not scannerX then
+    error("ERROR: GPS signal required!")
+end
+scannerX, scannerY, scannerZ = math.floor(scannerX), math.floor(scannerY), math.floor(scannerZ)
+print(string.format("Scanner at: %d, %d, %d", scannerX, scannerY, scannerZ))
+
+print("Scanning radius:", SCAN_RADIUS)
+local data = scanner.scan(SCAN_RADIUS)
+
+if type(data) ~= "table" then
+    error("Scan failed: " .. tostring(data))
+end
+
+print("Total blocks scanned:", #data)
+
+-- Create lookup table for fast position checking
+print("Building block map...")
+local blockMap = {}
+for _, b in ipairs(data) do
+    local key = string.format("%d,%d,%d", b.x, b.y, b.z)
+    blockMap[key] = b.name
+end
+
+-- Check if a position is exposed (has air adjacent)
+local function isExposed(x, y, z)
+    -- Check all 6 adjacent positions
+    local adjacent = {
+        {x+1, y, z},   -- east
+        {x-1, y, z},   -- west
+        {x, y+1, z},   -- up
+        {x, y-1, z},   -- down
+        {x, y, z+1},   -- south
+        {x, y, z-1}    -- north
+    }
+
+    for _, pos in ipairs(adjacent) do
+        local key = string.format("%d,%d,%d", pos[1], pos[2], pos[3])
+        local blockName = blockMap[key]
+
+        -- If position not in map (air/void) or is air, it's exposed
+        if not blockName or blockName == "minecraft:air" or blockName == "minecraft:cave_air" then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Helper function to check if block is target wood
+local function isTargetWood(blockName)
+    for _, woodName in ipairs(targetWoods) do
+        if blockName == woodName then
+            return true
+        end
+    end
+    return false
+end
+
+local woodTypeLabel = WOOD_TYPE == "all" and "wood" or WOOD_TYPE .. " wood"
+print(string.format("Filtering %s (exposed only, same level or above)...", woodTypeLabel))
+local woodList = {}
+local hiddenCount = 0
+local belowCount = 0
+
+for _, b in ipairs(data) do
+    if isTargetWood(b.name) then
+        -- Check if wood is at same level or above scanner (not below)
+        local absoluteY = scannerY + b.y
+
+        if absoluteY < scannerY then
+            -- Wood is below scanner - skip it
+            belowCount = belowCount + 1
+        elseif isExposed(b.x, b.y, b.z) then
+            -- Convert relative coordinates to absolute GPS coordinates
+            table.insert(woodList, {
+                x = scannerX + b.x,
+                y = scannerY + b.y,
+                z = scannerZ + b.z,
+                name = b.name
+            })
+        else
+            hiddenCount = hiddenCount + 1
+        end
+    end
+end
+
+print(string.format("Exposed %s found: %d", woodTypeLabel, #woodList))
+print("Hidden (skipped):", hiddenCount)
+print("Below scanner level (skipped):", belowCount)
+
+----------------------------------
+-- SORT WOOD FOR EFFICIENT CUTTING
+----------------------------------
+-- Sorting modes:
+-- 1. DISTANCE - Cut closest wood first (fuel efficient)
+-- 2. CHUNK - Group by chunks, then by Y level (organized cutting)
+-- 3. SWEEP - Sweep pattern X->Z->Y (systematic coverage)
+
+local SORT_MODE = "DISTANCE"  -- Change to "CHUNK" or "SWEEP" if desired
+
+if #woodList > 0 then
+    print("Sorting wood by mode:", SORT_MODE)
+
+    if SORT_MODE == "DISTANCE" then
+        -- Sort by distance from scanner (closest first)
+        for _, c in ipairs(woodList) do
+            c.sortKey = math.sqrt(
+                (c.x - scannerX)^2 +
+                (c.y - scannerY)^2 +
+                (c.z - scannerZ)^2
+            )
+        end
+        table.sort(woodList, function(a, b) return a.sortKey < b.sortKey end)
+        print(string.format("Sorted by distance! Range: %d to %d blocks",
+            math.floor(woodList[1].sortKey), math.floor(woodList[#woodList].sortKey)))
+
+    elseif SORT_MODE == "CHUNK" then
+        -- Sort by chunk, then Y level (bottom-up), then distance within chunk
+        for _, c in ipairs(woodList) do
+            local chunkX = math.floor(c.x / 16)
+            local chunkZ = math.floor(c.z / 16)
+            -- Create compound sort key: chunk, then Y, then local distance
+            c.chunkKey = chunkX * 10000 + chunkZ
+            c.yKey = c.y
+            c.localDist = (c.x % 16) + (c.z % 16)
+        end
+        table.sort(woodList, function(a, b)
+            if a.chunkKey ~= b.chunkKey then return a.chunkKey < b.chunkKey end
+            if a.yKey ~= b.yKey then return a.yKey < b.yKey end
+            return a.localDist < b.localDist
+        end)
+        local chunks = {}
+        for _, c in ipairs(woodList) do
+            chunks[c.chunkKey] = (chunks[c.chunkKey] or 0) + 1
+        end
+        local chunkCount = 0
+        for _ in pairs(chunks) do chunkCount = chunkCount + 1 end
+        print(string.format("Sorted by chunk! %d chunks, %d blocks total", chunkCount, #woodList))
+
+    elseif SORT_MODE == "SWEEP" then
+        -- Sweep pattern: X, then Z, then Y
+        table.sort(woodList, function(a, b)
+            if a.x ~= b.x then return a.x < b.x end
+            if a.z ~= b.z then return a.z < b.z end
+            return a.y < b.y
+        end)
+        print("Sorted in sweep pattern (X->Z->Y)")
+    end
+
+    -- Clean up temporary sort keys
+    for _, c in ipairs(woodList) do
+        c.sortKey = nil
+        c.chunkKey = nil
+        c.yKey = nil
+        c.localDist = nil
+    end
+end
+
+print(string.format("Broadcasting %s (ABSOLUTE GPS coordinates)...", woodTypeLabel))
+print("Protocol:", PROTOCOL)
+rednet.broadcast(woodList, PROTOCOL)
+
+print("Done!")
+print(string.format("Sent %d wood block locations to cutter", #woodList))
