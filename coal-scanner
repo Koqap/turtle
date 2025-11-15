@@ -1,0 +1,126 @@
+-- COAL SCANNER - Advanced Peripherals GeoScanner (v1.0)
+-- FEATURES:
+--  * Uses Advanced Peripherals geoScanner
+--  * Detects coal ore within configurable radius
+--  * No movement - scanning only
+--  * Displays all coal locations with coordinates
+
+-- ============ CONFIG ==============
+local RADIUS = 8  -- Scan radius (blocks)
+
+-- Target blocks to detect
+local TARGET_BLOCKS = {
+    "minecraft:coal_ore",
+    "minecraft:deepslate_coal_ore",
+    "minecraft:coal_block",
+}
+
+-- ============ UTILITIES ==============
+local function isTargetBlock(blockName)
+    if not blockName then return false end
+    for _, name in ipairs(TARGET_BLOCKS) do
+        if name == blockName then return true end
+    end
+    return false
+end
+
+-- ============ SCANNER DETECTION ==============
+local function findGeoScanner()
+    if not peripheral then
+        print("ERROR: Peripheral API not available")
+        return nil
+    end
+
+    local scanner = peripheral.find("geoScanner")
+    if not scanner then
+        print("ERROR: GeoScanner not found")
+        print("Make sure Advanced Peripherals is installed")
+        print("and a geoScanner is attached to the turtle")
+        return nil
+    end
+
+    return scanner
+end
+
+-- ============ SCANNING ==============
+local function scanForCoal(scanner, radius)
+    print(string.format("\n→ Scanning radius %d blocks...\n", radius))
+
+    local success, blocks = pcall(function()
+        return scanner.scan(radius)
+    end)
+
+    if not success then
+        print("ERROR: Failed to scan")
+        print("Error: " .. tostring(blocks))
+        return {}
+    end
+
+    if not blocks or type(blocks) ~= "table" then
+        print("ERROR: Invalid scan result")
+        return {}
+    end
+
+    local coalBlocks = {}
+    for _, block in ipairs(blocks) do
+        if block.name and isTargetBlock(block.name) then
+            table.insert(coalBlocks, {
+                name = block.name,
+                x = block.x or 0,
+                y = block.y or 0,
+                z = block.z or 0,
+            })
+        end
+    end
+
+    return coalBlocks
+end
+
+local function displayResults(coalBlocks, radius)
+    if #coalBlocks == 0 then
+        print(string.format("No coal detected in radius %d", radius))
+        return
+    end
+
+    print(string.format("╔════════════════════════════════════════╗"))
+    print(string.format("║  FOUND %d COAL BLOCK(S)                ", #coalBlocks))
+    print(string.format("╚════════════════════════════════════════╝\n"))
+
+    for i, block in ipairs(coalBlocks) do
+        print(string.format("FOUND COAL → %s", block.name))
+        print(string.format("  X: %d  Y: %d  Z: %d", block.x, block.y, block.z))
+
+        -- Calculate distance
+        local distance = math.sqrt(block.x^2 + block.y^2 + block.z^2)
+        print(string.format("  Distance: %.1f blocks\n", distance))
+    end
+
+    print(string.format("Total: %d coal block(s) detected", #coalBlocks))
+end
+
+-- ============ MAIN ==============
+print("╔════════════════════════════════════════╗")
+print("║  COAL SCANNER v1.0                     ║")
+print("║  Advanced Peripherals GeoScanner       ║")
+print("╚════════════════════════════════════════╝")
+print(string.format("Scan radius: %d blocks", RADIUS))
+print(string.format("Target blocks: %d types", #TARGET_BLOCKS))
+print("════════════════════════════════════════")
+
+-- Find scanner
+local scanner = findGeoScanner()
+if not scanner then
+    print("\n✗ Scanner not found - exiting")
+    return
+end
+
+print("✓ GeoScanner detected")
+
+-- Scan for coal
+local coalBlocks = scanForCoal(scanner, RADIUS)
+
+-- Display results
+print("\n════════════════════════════════════════")
+displayResults(coalBlocks, RADIUS)
+print("════════════════════════════════════════\n")
+print("✓ Scan complete")
