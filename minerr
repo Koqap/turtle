@@ -95,9 +95,46 @@ end
 ----------------------------------
 -- DIRECTION CONTROL
 ----------------------------------
-local facing = 0 -- assume north on start
+-- Determine actual facing direction using GPS
+local function detectFacing()
+    local x1, y1, z1 = gpsLoc()
+
+    -- Try to move forward
+    if not turtle.forward() then
+        -- Can't move, try digging
+        turtle.dig()
+        if not turtle.forward() then
+            return nil  -- Can't determine facing
+        end
+    end
+
+    local x2, y2, z2 = gpsLoc()
+
+    -- Move back
+    turtle.back()
+
+    -- Determine direction based on coordinate change
+    local dx = x2 - x1
+    local dz = z2 - z1
+
+    if dz == -1 then return 0 end  -- Moved north (Z decreases)
+    if dx == 1 then return 1 end   -- Moved east (X increases)
+    if dz == 1 then return 2 end   -- Moved south (Z increases)
+    if dx == -1 then return 3 end  -- Moved west (X decreases)
+
+    return nil  -- Couldn't determine
+end
+
+print("Detecting facing direction...")
+local facing = detectFacing()
+if not facing then
+    error("ERROR: Could not detect facing direction! Clear space in front of turtle.")
+end
+
+local dirNames = { [0]="north", [1]="east", [2]="south", [3]="west" }
+print(string.format("✓ Turtle facing: %s", dirNames[facing]))
+
 local dirs = { north=0, east=1, south=2, west=3 }
-local dirNames = { "north","east","south","west" }
 
 local function turnTo(dir)
     local target = dirs[dir]
