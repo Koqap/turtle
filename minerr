@@ -1,8 +1,10 @@
--- GEO SCAN AND MINE – Wireless Coal Miner
+-- GEO SCAN AND MINE – Wireless Coal Miner + Auto Refuel First
 
 local PROTOCOL = "geo_scan_results"
 
--- Find wireless modem
+----------------------------------
+-- WIRELESS MODEM SETUP
+----------------------------------
 local modemName = peripheral.find("modem", function(_, m) return m.isWireless() end)
 if not modemName then
     error("ERROR: No wireless modem on turtle!")
@@ -19,24 +21,31 @@ end
 
 print("Received", #data, "blocks")
 
--- Filter coal
+----------------------------------
+-- FILTER COAL ORE
+----------------------------------
 local coal = {}
 for _, b in ipairs(data) do
-    if b.name == "minecraft:coal_ore" or b.name == "minecraft:deepslate_coal_ore" then
+    if b.name == "minecraft:coal_ore"
+    or b.name == "minecraft:deepslate_coal_ore" then
         table.insert(coal, b)
     end
 end
 
 print("Coal locations:", #coal)
 
--- GPS helper
+----------------------------------
+-- GPS HELPERS
+----------------------------------
 local function gpsLoc()
     local x,y,z = gps.locate(3)
     if not x then error("GPS signal lost") end
     return math.floor(x), math.floor(y), math.floor(z)
 end
 
--- Movement helpers
+----------------------------------
+-- MOVEMENT HELPERS
+----------------------------------
 local function tryForward()
     while not turtle.forward() do turtle.dig() sleep(0.1) end
 end
@@ -47,9 +56,12 @@ local function tryDown()
     while not turtle.down() do turtle.digDown() sleep(0.1) end
 end
 
--- Basic direction control (auto-facing)
-local facing = 0  -- assume north
+----------------------------------
+-- DIRECTION CONTROL
+----------------------------------
+local facing = 0 -- assume north on start
 local dirs = { north=0, east=1, south=2, west=3 }
+local dirNames = { "north","east","south","west" }
 
 local function turnTo(dir)
     local target = dirs[dir]
@@ -59,12 +71,15 @@ local function turnTo(dir)
     end
 end
 
+----------------------------------
+-- MOVING TO ABSOLUTE COORDINATE
+----------------------------------
 local function moveTo(tx, ty, tz)
     local x,y,z = gpsLoc()
 
-    -- vertical
-    while y < ty do tryUp(); y=y+1 end
-    while y > ty do tryDown(); y=y-1 end
+    -- Vertical
+    while y < ty do tryUp(); y = y + 1 end
+    while y > ty do tryDown(); y = y - 1 end
 
     -- X axis
     if tx > x then turnTo("east") end
@@ -77,16 +92,78 @@ local function moveTo(tx, ty, tz)
     while z ~= tz do tryForward(); z = gpsLoc() end
 end
 
--- Save starting location
+----------------------------------
+-- AUTO REFUEL SYSTEM
+----------------------------------
+
+-- Uses fuel inside inventory
+local function invRefuel()
+    for slot = 1, 16 do
+        turtle.select(slot)
+        if turtle.refuel(0) then
+            turtle.refuel(64)
+        end
+    end
+    turtle.select(1)
+end
+
+-- Check minimal fuel needed:
+-- (distance to farthest ore × 2 (go+return) + safety)
+local function computeFuelNeeded()
+    local maxDist = 0
+    for _, b in ipairs(coal) do
+        local d = math.abs(b.x) + math.abs(b.y) + math.abs(b.z)
+        if d > maxDist then maxDist = d end
+    end
+    return maxDist * 2 + 100   -- safety margin
+end
+
+local function ensureFuel()
+    local required = computeFuelNeeded()
+    local current = turtle.getFuelLevel()
+
+    print("Fuel:", current, "/", required)
+
+    -- Try inventory fuel first
+    if current < required then
+        print("Refueling from inventory...")
+        invRefuel()
+        current = turtle.getFuelLevel()
+    end
+
+    if current < required then
+        print("WARNING: Not enough fuel even after refueling!")
+        print("Need:", required, "Have:", current)
+        print("Put fuel in inventory and press ENTER to retry.")
+        read()
+        return ensureFuel()
+    end
+
+    print("Fuel OK!")
+end
+
+----------------------------------
+-- REFUEL BEFORE MINING
+----------------------------------
+ensureFuel()
+
+----------------------------------
+-- START POSITION
+----------------------------------
 local sx, sy, sz = gpsLoc()
 
--- Mine coal
+----------------------------------
+-- MINE COAL
+----------------------------------
 for i, b in ipairs(coal) do
     print("Mining", i, "/", #coal)
     moveTo(sx + b.x, sy + b.y, sz + b.z)
     turtle.dig()
 end
 
+----------------------------------
+-- RETURN TO START
+----------------------------------
 print("Returning to start...")
 moveTo(sx, sy, sz)
 
