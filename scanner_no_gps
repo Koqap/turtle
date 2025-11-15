@@ -84,6 +84,55 @@ end
 print("Exposed coal found:", #coal)
 print("Hidden coal (skipped):", hiddenCount)
 
+----------------------------------
+-- SORT COAL FOR EFFICIENT MINING
+----------------------------------
+local SORT_MODE = "DISTANCE"  -- "DISTANCE", "CHUNK", or "SWEEP"
+
+if #coal > 0 then
+    print("Sorting coal by mode:", SORT_MODE)
+
+    if SORT_MODE == "DISTANCE" then
+        -- Sort by distance from scanner (closest first)
+        for _, c in ipairs(coal) do
+            c.sortKey = math.sqrt(c.x^2 + c.y^2 + c.z^2)
+        end
+        table.sort(coal, function(a, b) return a.sortKey < b.sortKey end)
+        print(string.format("Sorted by distance! Range: %d to %d blocks",
+            math.floor(coal[1].sortKey), math.floor(coal[#coal].sortKey)))
+
+    elseif SORT_MODE == "CHUNK" then
+        -- Sort by chunk, then Y level
+        for _, c in ipairs(coal) do
+            local chunkX = math.floor(c.x / 16)
+            local chunkZ = math.floor(c.z / 16)
+            c.chunkKey = chunkX * 10000 + chunkZ
+            c.yKey = c.y
+        end
+        table.sort(coal, function(a, b)
+            if a.chunkKey ~= b.chunkKey then return a.chunkKey < b.chunkKey end
+            return a.yKey < b.yKey
+        end)
+        print("Sorted by chunk!")
+
+    elseif SORT_MODE == "SWEEP" then
+        -- Sweep pattern: X, then Z, then Y
+        table.sort(coal, function(a, b)
+            if a.x ~= b.x then return a.x < b.x end
+            if a.z ~= b.z then return a.z < b.z end
+            return a.y < b.y
+        end)
+        print("Sorted in sweep pattern")
+    end
+
+    -- Clean up temporary keys
+    for _, c in ipairs(coal) do
+        c.sortKey = nil
+        c.chunkKey = nil
+        c.yKey = nil
+    end
+end
+
 print("Broadcasting RELATIVE coordinates (offsets)...")
 print("Protocol:", PROTOCOL)
 rednet.broadcast(coal, PROTOCOL)
