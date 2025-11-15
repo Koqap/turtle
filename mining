@@ -1,7 +1,7 @@
--- MINEMASTER 3x3 ULTRA-FAST — No-Check Speed Mining (v5.0)
--- SPEED OPTIMIZATIONS:
---  * Mines directly without checking if blocks exist first
---  * No pre-inspection - just dig and move
+-- MINEMASTER 3x3 SMART MINING (v6.0)
+-- OPTIMIZATIONS:
+--  * Mines blocks when detected, continues through air
+--  * Smart block detection - only digs when needed
 --  * 4-chunk segments with auto-return
 --  * Lane shifting after each segment
 --  * Smart inventory (keeps blocks, deposits everything else)
@@ -235,26 +235,40 @@ local function safeTurnRight()
     updatePosition("turnRight")
 end
 
--- ============ ULTRA-FAST 3x3 CLEARING ==============
--- Just dig everything without checking - MAXIMUM SPEED
-local function fastClear3x3()
-    -- Dig above current position
-    turtle.digUp()
-    
+-- ============ SMART 3x3 CLEARING ==============
+-- Only dig blocks that exist, skip air
+local function smartClear3x3()
+    -- Dig above current position if block exists
+    if turtle.detectUp() then
+        turtle.digUp()
+    end
+
     -- Dig forward column (center)
-    turtle.dig()
-    turtle.digUp()
-    
+    if turtle.detect() then
+        turtle.dig()
+    end
+    if turtle.detectUp() then
+        turtle.digUp()
+    end
+
     -- Dig left column
     safeTurnLeft()
-    turtle.dig()
-    turtle.digUp()
+    if turtle.detect() then
+        turtle.dig()
+    end
+    if turtle.detectUp() then
+        turtle.digUp()
+    end
     safeTurnRight()
-    
+
     -- Dig right column
     safeTurnRight()
-    turtle.dig()
-    turtle.digUp()
+    if turtle.detect() then
+        turtle.dig()
+    end
+    if turtle.detectUp() then
+        turtle.digUp()
+    end
     safeTurnLeft()
 end
 
@@ -405,31 +419,37 @@ local function shiftToNextLane()
     return true
 end
 
--- ============ ULTRA-FAST MINING STEP ==============
-local function fastMiningStep()
+-- ============ SMART MINING STEP ==============
+local function smartMiningStep()
     -- Ensure floor (quick check)
     ensureFloorBelow()
-    
-    -- Clear 3x3 ahead WITHOUT checking - just dig everything
-    fastClear3x3()
-    
-    -- Move forward immediately
-    if not safeForward() then
-        turtle.dig()
-        turtle.attack()
-        if not safeForward() then
+
+    -- Clear 3x3 ahead - only mine blocks that exist
+    smartClear3x3()
+
+    -- Move forward - if air, just move; if block, dig then move
+    if not turtle.forward() then
+        if turtle.detect() then
+            -- There's a block, mine it
+            turtle.dig()
+            turtle.attack()
+        end
+        if not turtle.forward() then
             print("!! Blocked")
             return false
         end
     end
-    
-    -- Clear above and ensure floor at new position
-    turtle.digUp()
+    updatePosition("forward")
+
+    -- Clear above at new position if needed
+    if turtle.detectUp() then
+        turtle.digUp()
+    end
     ensureFloorBelow()
-    
+
     miningState.segmentBlocks = miningState.segmentBlocks + 1
     miningState.totalBlocksMined = miningState.totalBlocksMined + 1
-    
+
     -- Place torch
     if TORCH_DIST > 0 and (miningState.segmentBlocks % TORCH_DIST == 0) then
         local torchSlot = findItemSlot("minecraft:torch")
@@ -438,20 +458,20 @@ local function fastMiningStep()
             turtle.placeDown()
         end
     end
-    
+
     -- Check if segment complete (64 blocks = 4 chunks)
     if miningState.segmentBlocks >= SEGMENT_LENGTH then
         returnToChestAndRefuel()
         shiftToNextLane()
     end
-    
+
     -- Emergency checks
     local fuelNeeded = calculateFuelNeeded()
     if inventoryFull() or turtle.getFuelLevel() < fuelNeeded + MIN_FUEL then
         print("⚠️  Emergency return")
         returnToChestAndRefuel()
     end
-    
+
     return true
 end
 
@@ -484,9 +504,9 @@ end
 
 -- ============ MAIN ==============
 print("╔════════════════════════════════════════╗")
-print("║  MINEMASTER ULTRA-FAST v5.0            ║")
+print("║  MINEMASTER SMART MINING v6.0          ║")
 print("╚════════════════════════════════════════╝")
-print("Mode: SPEED (no pre-checking)")
+print("Mode: SMART (mine blocks, skip air)")
 print(string.format("Segment: %d chunks (%d blocks)", CHUNK_LIMIT, SEGMENT_LENGTH))
 print(string.format("Lane width: %d blocks", LANE_WIDTH))
 print(string.format("Pattern: Mine 64 → Return → Shift → Repeat"))
@@ -494,11 +514,11 @@ print("════════════════════════�
 
 if not initialChecks() then return end
 
-print("🚀 Starting ULTRA-FAST mining...\n")
+print("🚀 Starting SMART mining...\n")
 
 -- Main loop
 while true do
-    local ok = fastMiningStep()
+    local ok = smartMiningStep()
     if not ok then
         print("!! Failure. Returning...")
         returnToChestAndRefuel()
