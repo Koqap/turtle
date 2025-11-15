@@ -1,7 +1,7 @@
--- MINEMASTER 3x3 SMART MINING (v6.0)
+-- MINEMASTER 3x3 CONTINUOUS MINING (v6.1)
 -- OPTIMIZATIONS:
---  * Mines blocks when detected, continues through air
---  * Smart block detection - only digs when needed
+--  * Moves continuously without checking - only mines when blocked
+--  * No pre-detection - just move, mine only when you hit something
 --  * 4-chunk segments with auto-return
 --  * Lane shifting after each segment
 --  * Smart inventory (keeps blocks, deposits everything else)
@@ -424,28 +424,17 @@ local function smartMiningStep()
     -- Ensure floor (quick check)
     ensureFloorBelow()
 
-    -- Check if there's a block in front
-    local blockInFront = turtle.detect()
-
-    -- Only do 3x3 clearing if there's a block in front
-    if blockInFront then
-        smartClear3x3()
-    else
-        -- Just clear above if air in front
-        if turtle.detectUp() then
-            turtle.digUp()
-        end
-    end
-
-    -- Move forward - if air, just move; if block, dig then move
+    -- Try to move forward continuously - no detection
     if not turtle.forward() then
-        if turtle.detect() then
-            -- There's a block, mine it
-            turtle.dig()
-            turtle.attack()
-        end
+        -- Can't move! There's a hard block - mine the 3x3 pattern
+        smartClear3x3()
+
+        -- Attack any entities
+        turtle.attack()
+
+        -- Try to move forward again after mining
         if not turtle.forward() then
-            print("!! Blocked")
+            print("!! Still blocked after mining")
             return false
         end
     end
@@ -514,9 +503,9 @@ end
 
 -- ============ MAIN ==============
 print("╔════════════════════════════════════════╗")
-print("║  MINEMASTER SMART MINING v6.0          ║")
+print("║  MINEMASTER CONTINUOUS v6.1            ║")
 print("╚════════════════════════════════════════╝")
-print("Mode: SMART (mine blocks, skip air)")
+print("Mode: CONTINUOUS (move until blocked)")
 print(string.format("Segment: %d chunks (%d blocks)", CHUNK_LIMIT, SEGMENT_LENGTH))
 print(string.format("Lane width: %d blocks", LANE_WIDTH))
 print(string.format("Pattern: Mine 64 → Return → Shift → Repeat"))
@@ -524,7 +513,7 @@ print("════════════════════════�
 
 if not initialChecks() then return end
 
-print("🚀 Starting SMART mining...\n")
+print("🚀 Starting CONTINUOUS mining...\n")
 
 -- Main loop
 while true do
