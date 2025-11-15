@@ -1,0 +1,32 @@
+local scanner = peripheral.find("geoScanner")
+local RADIUS = 16
+
+if not scanner then
+    print("ERROR: No geoScanner found!")
+    return
+end
+
+print("Scanning radius", RADIUS, "blocks...")
+local data = scanner.scan(RADIUS)
+
+if not data then
+    print("Scan failed!")
+    return
+end
+
+local f = fs.open("coal_coords.txt", "w")
+local count = 0
+
+for _, b in ipairs(data) do
+    if b.name == "minecraft:coal_ore"
+    or b.name == "minecraft:deepslate_coal_ore" then
+        count = count + 1
+        f.write(b.x .. " " .. b.y .. " " .. b.z .. "\n")
+    end
+end
+
+f.close()
+
+print("Done!")
+print("Coal ores found:", count)
+print("Saved to coal_coords.txt")
