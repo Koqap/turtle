@@ -8,8 +8,8 @@
 --  * Filters for ores
 
 -- ============ CONFIG ==============
-local RADIUS = 48                    -- Large scan radius for caves
-local SCANNER_NAME = "geo_scanner_0" -- Scanner peripheral name
+local RADIUS = 16                  -- Large scan radius for caves
+local SCANNER_NAME = "geo_scanner_1" -- Scanner peripheral name
 local OUTPUT_FILE = "scan_results.txt"
 local REDNET_PROTOCOL = "geo_scan_results"
 
