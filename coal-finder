@@ -1,0 +1,521 @@
+-- COAL FINDER - Auto Coal Detection & Mining (v1.0)
+-- FEATURES:
+--  * Scans area in expanding radius for coal
+--  * Auto-detects coal ore nearby
+--  * Mines only coal, no tunnel digging
+--  * Returns to chest when inventory full
+--  * Spiral search pattern for full coverage
+--  * Position tracking for navigation back
+
+-- ============ CONFIG ==============
+local SCAN_RADIUS = 16           -- How far to search
+local MIN_FUEL = 100             -- Minimum fuel before returning
+local SEARCH_DEPTH = 3           -- How many Y levels to check (above/below)
+
+-- Items to look for
+local TARGET_ORES = {
+    "minecraft:coal_ore",
+    "minecraft:deepslate_coal_ore",
+}
+
+-- Items to KEEP
+local KEEP_ITEMS = {
+    "minecraft:coal_ore", "minecraft:deepslate_coal_ore",
+    "minecraft:coal", "minecraft:charcoal",
+    "minecraft:cobblestone", "minecraft:cobbled_deepslate",
+    "minecraft:deepslate", "minecraft:stone",
+}
+
+local FUEL_ITEMS = {
+    "minecraft:coal", "minecraft:charcoal", "minecraft:coal_block",
+    "minecraft:lava_bucket", "minecraft:blaze_rod",
+}
+
+-- ============ STATE ==============
+local chestPos = {x=0, y=0, z=0, facing=0}
+local currentPos = {x=0, y=0, z=0, facing=0}
+local stats = {
+    coalFound = 0,
+    blocksMined = 0,
+    returns = 0,
+}
+
+-- ============ POSITION TRACKING ==============
+local function updatePosition(movement)
+    if movement == "forward" then
+        if currentPos.facing == 0 then currentPos.z = currentPos.z - 1
+        elseif currentPos.facing == 1 then currentPos.x = currentPos.x + 1
+        elseif currentPos.facing == 2 then currentPos.z = currentPos.z + 1
+        else currentPos.x = currentPos.x - 1 end
+    elseif movement == "back" then
+        if currentPos.facing == 0 then currentPos.z = currentPos.z + 1
+        elseif currentPos.facing == 1 then currentPos.x = currentPos.x - 1
+        elseif currentPos.facing == 2 then currentPos.z = currentPos.z - 1
+        else currentPos.x = currentPos.x + 1 end
+    elseif movement == "up" then
+        currentPos.y = currentPos.y + 1
+    elseif movement == "down" then
+        currentPos.y = currentPos.y - 1
+    elseif movement == "turnLeft" then
+        currentPos.facing = (currentPos.facing - 1) % 4
+    elseif movement == "turnRight" then
+        currentPos.facing = (currentPos.facing + 1) % 4
+    end
+end
+
+local function calculatePathToChest()
+    local dx = chestPos.x - currentPos.x
+    local dy = chestPos.y - currentPos.y
+    local dz = chestPos.z - currentPos.z
+    return dx, dy, dz
+end
+
+-- ============ UTILITIES ==============
+local function isTargetOre(blockName)
+    if not blockName then return false end
+    for _, name in ipairs(TARGET_ORES) do
+        if name == blockName then return true end
+    end
+    return false
+end
+
+local function isKeepItem(itemName)
+    if not itemName then return false end
+    for _, name in ipairs(KEEP_ITEMS) do
+        if name == itemName then return true end
+    end
+    return false
+end
+
+local function isFuelItem(itemName)
+    if not itemName then return false end
+    for _, name in ipairs(FUEL_ITEMS) do
+        if name == itemName then return true end
+    end
+    return false
+end
+
+local function inventoryFull()
+    for i=1,16 do
+        if turtle.getItemCount(i) == 0 then return false end
+    end
+    return true
+end
+
+local function calculateFuelNeeded()
+    local dx, dy, dz = calculatePathToChest()
+    return math.abs(dx) + math.abs(dy) + math.abs(dz) + 50
+end
+
+-- ============ MOVEMENT ==============
+local function safeForward()
+    for attempt=1,3 do
+        if turtle.forward() then
+            updatePosition("forward")
+            return true
+        else
+            -- Check if it's something we want to mine
+            local ok, data = turtle.inspect()
+            if ok and isTargetOre(data.name) then
+                print("  ⛏ Mining: " .. data.name)
+                turtle.dig()
+                stats.coalFound = stats.coalFound + 1
+                stats.blocksMined = stats.blocksMined + 1
+            else
+                turtle.dig()
+                stats.blocksMined = stats.blocksMined + 1
+            end
+            turtle.attack()
+            sleep(0.1)
+        end
+    end
+    return false
+end
+
+local function safeUp()
+    for attempt=1,3 do
+        if turtle.up() then
+            updatePosition("up")
+            return true
+        else
+            local ok, data = turtle.inspectUp()
+            if ok and isTargetOre(data.name) then
+                print("  ⛏ Mining: " .. data.name)
+                turtle.digUp()
+                stats.coalFound = stats.coalFound + 1
+                stats.blocksMined = stats.blocksMined + 1
+            else
+                turtle.digUp()
+                stats.blocksMined = stats.blocksMined + 1
+            end
+            sleep(0.1)
+        end
+    end
+    return false
+end
+
+local function safeDown()
+    for attempt=1,3 do
+        if turtle.down() then
+            updatePosition("down")
+            return true
+        else
+            local ok, data = turtle.inspectDown()
+            if ok and isTargetOre(data.name) then
+                print("  ⛏ Mining: " .. data.name)
+                turtle.digDown()
+                stats.coalFound = stats.coalFound + 1
+                stats.blocksMined = stats.blocksMined + 1
+            else
+                turtle.digDown()
+                stats.blocksMined = stats.blocksMined + 1
+            end
+            sleep(0.1)
+        end
+    end
+    return false
+end
+
+local function turnLeft()
+    turtle.turnLeft()
+    updatePosition("turnLeft")
+end
+
+local function turnRight()
+    turtle.turnRight()
+    updatePosition("turnRight")
+end
+
+-- ============ NAVIGATION ==============
+local function navigateToChest()
+    local dx, dy, dz = calculatePathToChest()
+
+    -- Move Y first
+    while dy > 0 do
+        if turtle.up() then updatePosition("up"); dy = dy - 1
+        else turtle.digUp(); sleep(0.2) end
+    end
+    while dy < 0 do
+        if turtle.down() then updatePosition("down"); dy = dy + 1
+        else turtle.digDown(); sleep(0.2) end
+    end
+
+    -- Move X
+    if dx ~= 0 then
+        local targetFacing = dx > 0 and 1 or 3
+        while currentPos.facing ~= targetFacing do
+            turnRight()
+        end
+        for i = 1, math.abs(dx) do
+            while not turtle.forward() do
+                turtle.dig(); turtle.attack(); sleep(0.2)
+            end
+            updatePosition("forward")
+        end
+    end
+
+    -- Move Z
+    if dz ~= 0 then
+        local targetFacing = dz > 0 and 2 or 0
+        while currentPos.facing ~= targetFacing do
+            turnRight()
+        end
+        for i = 1, math.abs(dz) do
+            while not turtle.forward() do
+                turtle.dig(); turtle.attack(); sleep(0.2)
+            end
+            updatePosition("forward")
+        end
+    end
+
+    -- Face chest
+    while currentPos.facing ~= chestPos.facing do
+        turnRight()
+    end
+end
+
+-- ============ CHEST OPERATIONS ==============
+local function depositItemsToChest()
+    turtle.turnLeft(); turtle.turnLeft()
+    local deposited = 0
+    for i=1,16 do
+        local item = turtle.getItemDetail(i)
+        if item then
+            if not isKeepItem(item.name) and not isFuelItem(item.name) then
+                turtle.select(i)
+                turtle.drop()
+                deposited = deposited + item.count
+            end
+        end
+    end
+    turtle.turnLeft(); turtle.turnLeft()
+    return deposited
+end
+
+local function takeFuelFromChest()
+    turtle.turnLeft(); turtle.turnLeft()
+    local fuelTaken = 0
+    for slot=1,16 do
+        if turtle.getItemCount(slot) == 0 then
+            turtle.select(slot)
+            turtle.suck(64)
+            local item = turtle.getItemDetail(slot)
+            if item then
+                if isFuelItem(item.name) then
+                    fuelTaken = fuelTaken + item.count
+                else
+                    turtle.drop()
+                end
+            end
+        end
+    end
+    turtle.turnLeft(); turtle.turnLeft()
+    return fuelTaken
+end
+
+local function doAutoRefuel()
+    local fuelBefore = turtle.getFuelLevel()
+    for i=1,16 do
+        local item = turtle.getItemDetail(i)
+        if item and isFuelItem(item.name) then
+            turtle.select(i)
+            turtle.refuel()
+        end
+    end
+    return turtle.getFuelLevel() - fuelBefore
+end
+
+local function returnToChestAndRefuel()
+    print("\n╔════════════════════════════════════════╗")
+    print("║  RETURNING TO CHEST                    ║")
+    print("╚════════════════════════════════════════╝")
+
+    local resumeX, resumeY, resumeZ = currentPos.x, currentPos.y, currentPos.z
+    local resumeFacing = currentPos.facing
+
+    print("→ Navigating to chest...")
+    navigateToChest()
+
+    print("→ Depositing items...")
+    local deposited = depositItemsToChest()
+    print(string.format("  ✓ Deposited %d items", deposited))
+
+    print("→ Taking fuel...")
+    local fuelTaken = takeFuelFromChest()
+    print(string.format("  ✓ Got %d fuel items", fuelTaken))
+
+    print("→ Refueling...")
+    doAutoRefuel()
+    print(string.format("  ✓ Fuel: %d", turtle.getFuelLevel()))
+
+    stats.returns = stats.returns + 1
+
+    print(string.format("\n✓ Stats - Coal: %d | Mined: %d | Returns: %d\n",
+        stats.coalFound, stats.blocksMined, stats.returns))
+
+    return resumeX, resumeY, resumeZ, resumeFacing
+end
+
+-- ============ SCANNING ==============
+local function scanDirection(direction)
+    local ok, data
+    if direction == "forward" then
+        ok, data = turtle.inspect()
+    elseif direction == "up" then
+        ok, data = turtle.inspectUp()
+    elseif direction == "down" then
+        ok, data = turtle.inspectDown()
+    end
+
+    if ok and isTargetOre(data.name) then
+        return true, data.name
+    end
+    return false, nil
+end
+
+local function scanAllDirections()
+    -- Scan current position in all 6 directions
+    local coals = {}
+
+    -- Forward
+    local found, name = scanDirection("forward")
+    if found then table.insert(coals, {dir="forward", name=name}) end
+
+    -- Up
+    found, name = scanDirection("up")
+    if found then table.insert(coals, {dir="up", name=name}) end
+
+    -- Down
+    found, name = scanDirection("down")
+    if found then table.insert(coals, {dir="down", name=name}) end
+
+    -- Turn and check other 3 horizontal directions
+    for i=1,3 do
+        turnRight()
+        found, name = scanDirection("forward")
+        if found then table.insert(coals, {dir="forward", name=name, turns=i}) end
+    end
+    turnRight() -- Back to original facing
+
+    return coals
+end
+
+local function mineCoalVein()
+    -- Mine all coal blocks around current position
+    local mined = 0
+
+    -- Check and mine forward
+    local ok, data = turtle.inspect()
+    if ok and isTargetOre(data.name) then
+        turtle.dig()
+        mined = mined + 1
+    end
+
+    -- Check and mine up
+    ok, data = turtle.inspectUp()
+    if ok and isTargetOre(data.name) then
+        turtle.digUp()
+        mined = mined + 1
+    end
+
+    -- Check and mine down
+    ok, data = turtle.inspectDown()
+    if ok and isTargetOre(data.name) then
+        turtle.digDown()
+        mined = mined + 1
+    end
+
+    -- Check all 4 horizontal directions
+    for i=1,4 do
+        ok, data = turtle.inspect()
+        if ok and isTargetOre(data.name) then
+            turtle.dig()
+            mined = mined + 1
+        end
+        turnRight()
+    end
+
+    return mined
+end
+
+-- ============ SPIRAL SEARCH PATTERN ==============
+local function spiralSearch(radius)
+    print(string.format("\n→ Searching radius %d...", radius))
+    local x, z = 0, 0
+    local dx, dz = 0, -1
+
+    for i = 1, (radius * 2 + 1) ^ 2 do
+        -- Check if we need to return
+        if inventoryFull() or turtle.getFuelLevel() < calculateFuelNeeded() + MIN_FUEL then
+            print("⚠️  Inventory full or low fuel")
+            returnToChestAndRefuel()
+            return false
+        end
+
+        -- Scan current position
+        local coals = scanAllDirections()
+        if #coals > 0 then
+            print(string.format("  ✓ Found %d coal block(s) nearby!", #coals))
+            local mined = mineCoalVein()
+            stats.coalFound = stats.coalFound + mined
+            stats.blocksMined = stats.blocksMined + mined
+        end
+
+        -- Move to next spiral position
+        if x == z or (x < 0 and x == -z) or (x > 0 and x == 1-z) then
+            dx, dz = -dz, dx
+        end
+
+        -- Update target
+        x, z = x + dx, z + dz
+
+        -- Navigate to position (simple approach)
+        local targetX = x
+        local targetZ = z
+
+        -- Move in X direction
+        while currentPos.x < targetX do
+            while currentPos.facing ~= 1 do turnRight() end
+            safeForward()
+        end
+        while currentPos.x > targetX do
+            while currentPos.facing ~= 3 do turnRight() end
+            safeForward()
+        end
+
+        -- Move in Z direction
+        while currentPos.z < targetZ do
+            while currentPos.facing ~= 2 do turnRight() end
+            safeForward()
+        end
+        while currentPos.z > targetZ do
+            while currentPos.facing ~= 0 do turnRight() end
+            safeForward()
+        end
+    end
+
+    return true
+end
+
+-- ============ INITIALIZATION ==============
+local function initialChecks()
+    if not turtle.getItemDetail then
+        print("ERROR: Requires Mining Turtle")
+        return false
+    end
+
+    turtle.turnLeft(); turtle.turnLeft()
+    local ok, data = turtle.inspect()
+
+    if not ok or not string.find(data.name or "", "chest") then
+        turtle.turnLeft(); turtle.turnLeft()
+        print("ERROR: Place chest BEHIND turtle")
+        return false
+    end
+
+    turtle.turnLeft(); turtle.turnLeft()
+    chestPos = {x=0, y=0, z=0, facing=0}
+
+    print(string.format("✓ Chest detected at home position"))
+
+    takeFuelFromChest()
+    doAutoRefuel()
+
+    return true
+end
+
+-- ============ MAIN ==============
+print("╔════════════════════════════════════════╗")
+print("║  COAL FINDER v1.0                      ║")
+print("╚════════════════════════════════════════╝")
+print("Mode: AUTO COAL DETECTION")
+print(string.format("Scan radius: %d blocks", SCAN_RADIUS))
+print(string.format("Search depth: %d Y-levels", SEARCH_DEPTH))
+print("Pattern: Spiral search with auto-detect")
+print("════════════════════════════════════════\n")
+
+if not initialChecks() then return end
+
+print("🔍 Starting coal search...\n")
+
+-- Main loop - expand radius over time
+for radius = 1, SCAN_RADIUS do
+    spiralSearch(radius)
+
+    -- Return to base after each radius
+    if currentPos.x ~= 0 or currentPos.y ~= 0 or currentPos.z ~= 0 then
+        returnToChestAndRefuel()
+    end
+
+    print(string.format("✓ Radius %d complete!\n", radius))
+end
+
+print("\n╔════════════════════════════════════════╗")
+print("║  SEARCH COMPLETE!                      ║")
+print("╚════════════════════════════════════════╝")
+print(string.format("Coal found: %d", stats.coalFound))
+print(string.format("Blocks mined: %d", stats.blocksMined))
+print(string.format("Returns: %d", stats.returns))
+print("\nReturning to home...")
+navigateToChest()
+depositItemsToChest()
