@@ -441,7 +441,7 @@ if BASALT then
         local function updateDisplay()
             -- Update status
             statusLabel:setText(string.format(
-                " ID:%d | Protocol:%s | Ores:%d | Press Q to quit",
+                " ID:%d | Protocol:%s | Ores:%d | Press S=Scan Q=Quit",
                 COMPUTER_ID, PROTOCOL, #mapData.ores
             ))
             
@@ -517,6 +517,12 @@ if BASALT then
                     sleep(1)
                     basalt.stop()
                     break
+                elseif key == keys.s then
+                    addLog("Manual scan triggered...")
+                    local scan = doScan(SCAN_RADIUS)
+                    addOresFromScan(scan, 0, 0, 0)
+                    addLog(string.format("Scan complete: %d blocks", #scan))
+                    updateDisplay()
                 end
             end
         end)
