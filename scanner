@@ -143,16 +143,60 @@ print("Below scanner level (skipped):", belowCount)
 -- SORT ORES FOR EFFICIENT MINING
 ----------------------------------
 -- Sorting modes:
--- 1. DISTANCE - Mine closest ore first (fuel efficient)
--- 2. CHUNK - Group by chunks, then by Y level (organized mining)
--- 3. SWEEP - Sweep pattern X->Z->Y (systematic coverage)
+-- 1. CLUSTER - Mine nearest ore, then nearest to that (mines piles first!)
+-- 2. DISTANCE - Mine closest ore first (fuel efficient)
+-- 3. CHUNK - Group by chunks, then by Y level (organized mining)
+-- 4. SWEEP - Sweep pattern X->Z->Y (systematic coverage)
 
-local SORT_MODE = "CHUNK"  -- Change to "DISTANCE" or "SWEEP" if desired
+local SORT_MODE = "CLUSTER"  -- Best for mining ore piles/clusters efficiently!
 
 if #oreList > 0 then
     print("Sorting ore by mode:", SORT_MODE)
 
-    if SORT_MODE == "DISTANCE" then
+    if SORT_MODE == "CLUSTER" then
+        -- Nearest-neighbor algorithm: always mine closest unvisited ore
+        -- This naturally groups clusters together!
+        print("Computing cluster path (nearest-neighbor)...")
+
+        local sorted = {}
+        local unvisited = {}
+        for i, c in ipairs(oreList) do
+            unvisited[i] = c
+        end
+
+        -- Start from scanner position
+        local currentX, currentY, currentZ = scannerX, scannerY, scannerZ
+
+        while next(unvisited) do
+            local nearestIdx = nil
+            local nearestDist = math.huge
+
+            -- Find closest unvisited ore from current position
+            for idx, ore in pairs(unvisited) do
+                local dist = math.abs(ore.x - currentX) +
+                             math.abs(ore.y - currentY) +
+                             math.abs(ore.z - currentZ)
+                if dist < nearestDist then
+                    nearestDist = dist
+                    nearestIdx = idx
+                end
+            end
+
+            -- Add nearest ore to sorted list
+            local nextOre = unvisited[nearestIdx]
+            table.insert(sorted, nextOre)
+
+            -- Move to that ore's position
+            currentX, currentY, currentZ = nextOre.x, nextOre.y, nextOre.z
+
+            -- Mark as visited
+            unvisited[nearestIdx] = nil
+        end
+
+        oreList = sorted
+        print(string.format("✓ Optimized cluster path! %d ores", #oreList))
+
+    elseif SORT_MODE == "DISTANCE" then
         -- Sort by distance from scanner (closest first)
         for _, c in ipairs(oreList) do
             c.sortKey = math.sqrt(

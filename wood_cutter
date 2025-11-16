@@ -244,26 +244,30 @@ local function moveTo(tx, ty, tz)
         if moveCount > 500 then error("Stuck moving down! At "..y.." trying to reach "..ty) end
     end
 
-    -- X axis (must update ALL coordinates, not just x!)
-    if tx > x then turnTo("east") end
-    if tx < x then turnTo("west") end
+    -- X axis (re-check direction every iteration!)
     moveCount = 0
     while x ~= tx do
+        -- Re-orient every iteration to handle overshoots
+        if tx > x then turnTo("east") end
+        if tx < x then turnTo("west") end
+
         tryForward()
-        x,y,z = gpsLoc()  -- FIX: capture all 3 values
+        x,y,z = gpsLoc()  -- Update all coordinates
         moveCount = moveCount + 1
         if moveCount > 500 then
             error(string.format("Stuck on X axis! At %d,%d,%d trying to reach %d,%d,%d", x, y, z, tx, ty, tz))
         end
     end
 
-    -- Z axis (must update ALL coordinates, not just z!)
-    if tz > z then turnTo("south") end
-    if tz < z then turnTo("north") end
+    -- Z axis (re-check direction every iteration!)
     moveCount = 0
     while z ~= tz do
+        -- Re-orient every iteration to handle overshoots
+        if tz > z then turnTo("south") end
+        if tz < z then turnTo("north") end
+
         tryForward()
-        x,y,z = gpsLoc()  -- FIX: capture all 3 values
+        x,y,z = gpsLoc()  -- Update all coordinates
         moveCount = moveCount + 1
         if moveCount > 500 then
             error(string.format("Stuck on Z axis! At %d,%d,%d trying to reach %d,%d,%d", x, y, z, tx, ty, tz))
