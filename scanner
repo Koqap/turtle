@@ -377,13 +377,9 @@ end
 ----------------------------------
 -- BASALT GUI v2 API
 ----------------------------------
-print("DEBUG: BASALT variable is:", BASALT)
-
 if BASALT then
-    print("Initializing Basalt GUI (v2)...")
-    print("DEBUG: Attempting to load Basalt...")
+    print("Initializing Basalt GUI...")
     local ok, basalt = pcall(require, "basalt")
-    print("DEBUG: pcall result - ok:", ok, "basalt:", type(basalt))
     
     if not ok then
         print("Basalt not available, using text mode")
@@ -394,7 +390,6 @@ if BASALT then
         print("")
         BASALT = false
     else
-        print("Basalt loaded successfully!")
         -- Create main frame
         local main = basalt.createFrame()
         
@@ -409,14 +404,14 @@ if BASALT then
         title:setForeground(colors.white)
         
         -- Map display (left side)
-        local mapBox = main:addTextfield()
+        local mapBox = main:addTextbox()
         mapBox:setPosition(1, 2)
         mapBox:setSize(mapW, mapH)
         mapBox:setBackground(colors.black)
         mapBox:setForeground(colors.white)
         
         -- Info panel (right side)
-        local infoBox = main:addTextfield()
+        local infoBox = main:addTextbox()
         infoBox:setPosition(mapW + 2, 2)
         infoBox:setSize(23, mapH)
         infoBox:setBackground(colors.gray)
@@ -430,7 +425,7 @@ if BASALT then
         statusBar:setForeground(colors.yellow)
         
         -- Log area
-        local logBox = main:addTextfield()
+        local logBox = main:addTextbox()
         logBox:setPosition(1, mapH + 3)
         logBox:setSize(mapW + 25, 7)
         logBox:setBackground(colors.black)
