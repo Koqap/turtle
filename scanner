@@ -359,7 +359,7 @@ local function handleRequest(id, msg)
 end
 
 ----------------------------------
--- BASALT GUI
+-- BASALT GUI (OPTIONAL)
 ----------------------------------
 if BASALT then
     print("Initializing Basalt GUI...")
@@ -369,166 +369,90 @@ if BASALT then
         print("Basalt not available, using text mode")
         BASALT = false
     else
-        local screen = basalt.createFrame()
-        local mapW, mapH = 40, 20
-        
-        local mapWindow = screen:addTextArea("map")
-        mapWindow:setPosition(1, 1)
-        mapWindow:setSize(mapW, mapH)
-        mapWindow:setBackground(colors.black)
-        mapWindow:setForeground(colors.white)
-
-        local panel = screen:addTextArea("panel")
-        panel:setPosition(mapW + 2, 1)
-        panel:setSize(30, mapH)
-        panel:setBackground(colors.gray)
-        panel:setForeground(colors.white)
-
-        local status = screen:addLabel("status")
-        status:setPosition(1, mapH + 1)
-        status:setSize(mapW + 31, 1)
-        status:setBackground(colors.black)
-        status:setForeground(colors.yellow)
-
-        local logArea = screen:addTextArea("log")
-        logArea:setPosition(1, mapH + 2)
-        logArea:setSize(mapW + 31, 7)
-        logArea:setBackground(colors.black)
-        logArea:setForeground(colors.lightGray)
-        
-        local logBuffer = {}
-        local maxLogLines = 6
-        
-        local function addLog(text)
-            table.insert(logBuffer, text)
-            if #logBuffer > maxLogLines then
-                table.remove(logBuffer, 1)
-            end
-            logArea:setText(table.concat(logBuffer, "\n"))
-        end
-
-        local function render()
-            -- Map rendering (simple 2D top-down view)
-            local cx, cz = mapData.home.x, mapData.home.z
-            local rangeX = math.floor(mapW / 2)
-            local rangeZ = math.floor(mapH / 2)
-            local out = {}
+        -- Try to create a simple GUI, fall back to text mode if it fails
+        local guiOk = pcall(function()
+            local main = basalt.createFrame()
             
-            for z = -rangeZ, rangeZ do
-                local row = ""
-                for x = -rangeX, rangeX do
-                    local wx = cx + x
-                    local wz = cz + z
-                    local k = keyFrom(wx, mapData.home.y, wz)
-                    
-                    if x == 0 and z == 0 then
-                        row = row .. "H"  -- Home
-                    elseif mapData.visited[k] then 
-                        row = row .. "."  -- Visited
-                    else
-                        local hasOre = false
-                        for _, o in ipairs(mapData.ores) do
-                            if o.x == wx and o.z == wz then
-                                hasOre = true
-                                break
-                            end
-                        end
-                        if hasOre then
-                            row = row .. "*"  -- Ore
-                        elseif mapData.blocks[k] then
-                            row = row .. "#"  -- Block
-                        else
-                            row = row .. " "  -- Unknown
+            -- Simple text display areas
+            local infoBox = main:addLabel()
+            infoBox:setPosition(1, 1)
+            infoBox:setSize(50, 1)
+            infoBox:setBackground(colors.black)
+            infoBox:setForeground(colors.yellow)
+            
+            local oreListBox = main:addLabel()
+            oreListBox:setPosition(1, 3)
+            oreListBox:setSize(50, 15)
+            oreListBox:setBackground(colors.black)
+            oreListBox:setForeground(colors.white)
+            
+            local function updateDisplay()
+                -- Info line
+                infoBox:setText(string.format(
+                    "SmartMiner | Ores: %d | Computer ID: %d", 
+                    #mapData.ores, COMPUTER_ID
+                ))
+                
+                -- Ore list
+                local text = "Recent Ores:\n"
+                local maxOres = math.min(12, #mapData.ores)
+                for i = 1, maxOres do
+                    local o = mapData.ores[i]
+                    local oreName = o.name:match("(%w+)_ore") or "ore"
+                    local stat = o.claimed and "[C]" or "[ ]"
+                    text = text .. string.format("%s %s at %d,%d,%d\n", 
+                        stat, oreName, o.x, o.y, o.z)
+                end
+                if #mapData.ores > 12 then
+                    text = text .. string.format("...and %d more", #mapData.ores - 12)
+                end
+                oreListBox:setText(text)
+            end
+            
+            -- Update timer
+            local timer = main:addTimer()
+            timer:setTime(1)
+            timer:onCall(function()
+                updateDisplay()
+            end)
+            timer:start()
+            
+            -- Quit handler
+            main:onKey(function(_, key)
+                if key == keys.q then
+                    basalt.stop()
+                end
+            end)
+            
+            print("Basalt GUI started. Press Q to quit.")
+            updateDisplay()
+            
+            -- Run Basalt alongside rednet handling
+            parallel.waitForAny(
+                function() basalt.autoUpdate() end,
+                function()
+                    while true do
+                        local senderId, message = rednet.receive(PROTOCOL)
+                        if senderId then
+                            handleRequest(senderId, message)
+                            updateDisplay()
                         end
                     end
+                end,
+                function()
+                    -- Auto-save
+                    while true do
+                        sleep(AUTO_SAVE_INTERVAL)
+                        saveMap()
+                    end
                 end
-                table.insert(out, row)
-            end
-            mapWindow:setText(table.concat(out, "\n"))
-
-            -- Panel: show ore list
-            local panelText = "SMARTMINER SYSTEM\n"
-            panelText = panelText .. string.rep("=", 28) .. "\n"
-            panelText = panelText .. string.format("Ores: %d\n", #mapData.ores)
-            panelText = panelText .. string.format("Visited: %d\n", 
-                (function() 
-                    local count = 0
-                    for _ in pairs(mapData.visited) do count = count + 1 end
-                    return count
-                end)())
-            panelText = panelText .. string.rep("-", 28) .. "\n"
-            panelText = panelText .. "Recent Ores:\n"
-            
-            local oreCount = math.min(10, #mapData.ores)
-            for i = 1, oreCount do
-                local o = mapData.ores[i]
-                local oreName = o.name:match("minecraft:(%w+)_ore") or "ore"
-                local status = o.claimed and "[C]" or "[ ]"
-                panelText = panelText .. string.format("%s %s %d,%d,%d\n", 
-                    status, oreName, o.x, o.y, o.z)
-            end
-            
-            if #mapData.ores > 10 then
-                panelText = panelText .. string.format("...and %d more\n", #mapData.ores - 10)
-            end
-            
-            panel:setText(panelText)
-
-            -- Status
-            status:setText(string.format(
-                "Computer ID: %d | Protocol: %s | Ores: %d | Press Q to quit", 
-                COMPUTER_ID, PROTOCOL, #mapData.ores
-            ))
+            )
+        end)
+        
+        if not guiOk then
+            print("GUI initialization failed, using text mode")
+            BASALT = false
         end
-
-        screen:setBackground(colors.black)
-        screen:show()
-        
-        print("Basalt GUI initialized")
-        addLog("SmartMiner Computer Brain started")
-        addLog(string.format("Computer ID: %d", COMPUTER_ID))
-        addLog(string.format("Protocol: %s", PROTOCOL))
-        
-        local lastSave = os.epoch("utc")
-        local running = true
-        
-        -- Event loop
-        basalt.schedule(function()
-            while running do
-                render()
-                
-                -- Auto-save
-                local now = os.epoch("utc")
-                if now - lastSave >= AUTO_SAVE_INTERVAL * 1000 then
-                    saveMap()
-                    lastSave = now
-                end
-                
-                sleep(0.1)
-            end
-        end)
-        
-        -- Rednet listener
-        basalt.schedule(function()
-            while running do
-                local senderId, message, protocol = rednet.receive(PROTOCOL, 0.1)
-                if senderId then
-                    addLog(string.format("< Turtle %d: %s", senderId, message.type or "unknown"))
-                    handleRequest(senderId, message)
-                end
-            end
-        end)
-        
-        -- Key handler
-        screen:onEvent(function(event, p1)
-            if event == "key" and p1 == keys.q then
-                running = false
-                saveMap()
-                basalt.stop()
-            end
-        end)
-        
-        basalt.autoUpdate()
     end
 end
 
