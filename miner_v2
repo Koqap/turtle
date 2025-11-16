@@ -392,24 +392,43 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
     -- Move on X axis with smart obstacle avoidance
     moveCount = 0
     local failCount = 0
+    local lastDistance = math.abs(targetX - lastKnown.x)
+    
     while lastKnown.x ~= targetX and moveCount < maxMoves do
         -- Recalculate direction based on current position
         local xDiff = targetX - lastKnown.x
         if xDiff > 0 then 
             turnTo(1)  -- East
             if moveCount == 0 then
-                print(string.format("  Moving East %d blocks...", xDiff))
+                print(string.format("  Moving East %d blocks... (facing=%d)", xDiff, facing))
             end
         elseif xDiff < 0 then 
             turnTo(3)  -- West
             if moveCount == 0 then
-                print(string.format("  Moving West %d blocks...", math.abs(xDiff)))
+                print(string.format("  Moving West %d blocks... (facing=%d)", math.abs(xDiff), facing))
             end
         else
             break  -- Already at target X
         end
         
         local success = tryForward()
+        
+        -- Verify direction after first move
+        if success and moveCount == 0 then
+            local vx, vy, vz = gps.locate(5)
+            if vx then
+                local actualX = math.floor(vx)
+                print(string.format("    Direction check: X was %d, now %d", lastKnown.x, actualX))
+                if (xDiff > 0 and actualX <= lastKnown.x) or (xDiff < 0 and actualX >= lastKnown.x) then
+                    print("    ✗ WRONG DIRECTION DETECTED!")
+                    print("    Turning around...")
+                    turtle.turnRight()
+                    turtle.turnRight()
+                    facing = (facing + 2) % 4
+                end
+                lastKnown = {x=actualX, y=math.floor(vy), z=math.floor(vz)}
+            end
+        end
         
         if success then
             moveCount = moveCount + 1
@@ -423,6 +442,15 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
                     lastKnown = {x=math.floor(gx), y=math.floor(gy), z=math.floor(gz)}
                     local remaining = math.abs(targetX - lastKnown.x)
                     print(string.format("  X progress: %d (GPS: %d, %d, %d) - %d blocks to go", moveCount, lastKnown.x, lastKnown.y, lastKnown.z, remaining))
+                    
+                    -- CRITICAL: Check if distance is INCREASING (moving wrong way!)
+                    if remaining > lastDistance + 2 then
+                        print("  ✗ ERROR: Moving AWAY from target!")
+                        print(string.format("    Was %d blocks away, now %d blocks away", lastDistance, remaining))
+                        print("    Direction is WRONG! Breaking out...")
+                        break  -- Exit loop and recalculate
+                    end
+                    lastDistance = remaining
                     
                     -- Check if we need to change direction
                     if (oldPos.x < targetX) ~= (lastKnown.x < targetX) then
@@ -471,24 +499,43 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
     -- Move on Z axis with smart obstacle avoidance
     moveCount = 0
     failCount = 0
+    local lastDistance = math.abs(targetZ - lastKnown.z)
+    
     while lastKnown.z ~= targetZ and moveCount < maxMoves do
         -- Recalculate direction based on current position
         local zDiff = targetZ - lastKnown.z
         if zDiff > 0 then 
             turnTo(2)  -- South
             if moveCount == 0 then
-                print(string.format("  Moving South %d blocks...", zDiff))
+                print(string.format("  Moving South %d blocks... (facing=%d)", zDiff, facing))
             end
         elseif zDiff < 0 then 
             turnTo(0)  -- North
             if moveCount == 0 then
-                print(string.format("  Moving North %d blocks...", math.abs(zDiff)))
+                print(string.format("  Moving North %d blocks... (facing=%d)", math.abs(zDiff), facing))
             end
         else
             break  -- Already at target Z
         end
         
         local success = tryForward()
+        
+        -- Verify direction after first move
+        if success and moveCount == 0 then
+            local vx, vy, vz = gps.locate(5)
+            if vx then
+                local actualZ = math.floor(vz)
+                print(string.format("    Direction check: Z was %d, now %d", lastKnown.z, actualZ))
+                if (zDiff > 0 and actualZ <= lastKnown.z) or (zDiff < 0 and actualZ >= lastKnown.z) then
+                    print("    ✗ WRONG DIRECTION DETECTED!")
+                    print("    Turning around...")
+                    turtle.turnRight()
+                    turtle.turnRight()
+                    facing = (facing + 2) % 4
+                end
+                lastKnown = {x=math.floor(vx), y=math.floor(vy), z=actualZ}
+            end
+        end
         
         if success then
             moveCount = moveCount + 1
@@ -502,6 +549,15 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
                     lastKnown = {x=math.floor(gx), y=math.floor(gy), z=math.floor(gz)}
                     local remaining = math.abs(targetZ - lastKnown.z)
                     print(string.format("  Z progress: %d (GPS: %d, %d, %d) - %d blocks to go", moveCount, lastKnown.x, lastKnown.y, lastKnown.z, remaining))
+                    
+                    -- CRITICAL: Check if distance is INCREASING (moving wrong way!)
+                    if remaining > lastDistance + 2 then
+                        print("  ✗ ERROR: Moving AWAY from target!")
+                        print(string.format("    Was %d blocks away, now %d blocks away", lastDistance, remaining))
+                        print("    Direction is WRONG! Breaking out...")
+                        break  -- Exit loop and recalculate
+                    end
+                    lastDistance = remaining
                     
                     -- Check if we need to change direction
                     if (oldPos.z < targetZ) ~= (lastKnown.z < targetZ) then
