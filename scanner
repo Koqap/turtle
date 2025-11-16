@@ -148,7 +148,7 @@ print("Below scanner level (skipped):", belowCount)
 -- 3. CHUNK - Group by chunks, then by Y level (organized mining)
 -- 4. SWEEP - Sweep pattern X->Z->Y (systematic coverage)
 
-local SORT_MODE = "CLUSTER"  -- Best for mining ore piles/clusters efficiently!
+local SORT_MODE = "DISTANCE"  -- Mine closest ores first (lowest to highest range)
 
 if #oreList > 0 then
     print("Sorting ore by mode:", SORT_MODE)
@@ -208,6 +208,13 @@ if #oreList > 0 then
         table.sort(oreList, function(a, b) return a.sortKey < b.sortKey end)
         print(string.format("Sorted by distance! Range: %d to %d blocks",
             math.floor(oreList[1].sortKey), math.floor(oreList[#oreList].sortKey)))
+
+        -- Show first 3 ore coordinates for verification
+        print("First 3 ores (closest):")
+        for idx = 1, math.min(3, #oreList) do
+            local ore = oreList[idx]
+            print(string.format("  %d. GPS %d,%d,%d (dist: %d)", idx, ore.x, ore.y, ore.z, math.floor(ore.sortKey)))
+        end
 
     elseif SORT_MODE == "CHUNK" then
         -- Sort by chunk, then Y level (bottom-up), then distance within chunk

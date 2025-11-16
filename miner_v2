@@ -218,14 +218,19 @@ if type(data) ~= "table" then
 end
 
 print("Received", #data, "ore blocks (ABSOLUTE GPS coordinates)")
-if #data > 0 then
-    print(string.format("First ore at GPS: %d, %d, %d", data[1].x, data[1].y, data[1].z))
-    print(string.format("Ore type: %s", data[1].name))
-end
 
 -- Scanner already filtered for exposed ore only
 local oreList = data
 print("Ready to mine", #oreList, "exposed ore blocks")
+
+-- Show first 3 ores for verification
+if #oreList > 0 then
+    print("Mining order (first 3):")
+    for idx = 1, math.min(3, #oreList) do
+        local ore = oreList[idx]
+        print(string.format("  %d. GPS %d,%d,%d (%s)", idx, ore.x, ore.y, ore.z, ore.name))
+    end
+end
 
 local dirs = { north=0, east=1, south=2, west=3 }
 
@@ -562,6 +567,21 @@ for i, b in ipairs(oreList) do
 
     -- Use absolute GPS coordinates directly (scanner already converted them)
     moveTo(b.x, b.y, b.z)
+
+    -- Verify we arrived at the correct location
+    local actualX, actualY, actualZ = gpsLoc()
+    if actualX ~= b.x or actualY ~= b.y or actualZ ~= b.z then
+        print(string.format("WARNING: Position mismatch!"))
+        print(string.format("  Target: %d,%d,%d", b.x, b.y, b.z))
+        print(string.format("  Actual: %d,%d,%d", actualX, actualY, actualZ))
+        print(string.format("  Offset: %d,%d,%d", actualX - b.x, actualY - b.y, actualZ - b.z))
+        -- Try to reach exact position
+        if actualX ~= b.x or actualZ ~= b.z then
+            print("Attempting to correct position...")
+            moveTo(b.x, b.y, b.z)
+        end
+    end
+
     turtle.dig()
     stats.oresMined = stats.oresMined + 1
 end
