@@ -6,7 +6,7 @@
 ----------------------------------
 local scannerSide = "right"          -- side where geo scanner is attached
 local modemSide = "left"             -- side where wireless modem is attached
-local BASALT = false                 -- set false (text mode, more stable)
+local BASALT = true                  -- set true if Basalt installed (v2 API)
 local SCAN_RADIUS = 8                -- scanner radius
 local AUTO_SAVE_INTERVAL = 30        -- seconds
 local PROTOCOL = "smartminer"        -- rednet protocol
@@ -375,10 +375,197 @@ local function handleRequest(id, msg)
 end
 
 ----------------------------------
--- TEXT MODE INTERFACE
+-- BASALT GUI v2 API
 ----------------------------------
--- Basalt GUI disabled for stability
--- Using enhanced text mode for monitoring
+if BASALT then
+    print("Initializing Basalt GUI (v2)...")
+    local ok, basalt = pcall(require, "basalt")
+    
+    if not ok then
+        print("Basalt not available, using text mode")
+        BASALT = false
+    else
+        -- Create main frame
+        local main = basalt.createFrame()
+        
+        local mapW, mapH = 45, 18
+        
+        -- Title
+        local title = main:addLabel()
+        title:setPosition(1, 1)
+        title:setSize(mapW + 25, 1)
+        title:setText("SMARTMINER COMPUTER BRAIN")
+        title:setBackground(colors.blue)
+        title:setForeground(colors.white)
+        
+        -- Map display (left side)
+        local mapBox = main:addTextfield()
+        mapBox:setPosition(1, 2)
+        mapBox:setSize(mapW, mapH)
+        mapBox:setBackground(colors.black)
+        mapBox:setForeground(colors.white)
+        
+        -- Info panel (right side)
+        local infoBox = main:addTextfield()
+        infoBox:setPosition(mapW + 2, 2)
+        infoBox:setSize(23, mapH)
+        infoBox:setBackground(colors.gray)
+        infoBox:setForeground(colors.white)
+        
+        -- Status bar
+        local statusBar = main:addLabel()
+        statusBar:setPosition(1, mapH + 2)
+        statusBar:setSize(mapW + 25, 1)
+        statusBar:setBackground(colors.black)
+        statusBar:setForeground(colors.yellow)
+        
+        -- Log area
+        local logBox = main:addTextfield()
+        logBox:setPosition(1, mapH + 3)
+        logBox:setSize(mapW + 25, 7)
+        logBox:setBackground(colors.black)
+        logBox:setForeground(colors.lightGray)
+        
+        local logBuffer = {}
+        local maxLogLines = 6
+        
+        local function addLog(text)
+            table.insert(logBuffer, text)
+            if #logBuffer > maxLogLines then
+                table.remove(logBuffer, 1)
+            end
+            logBox:setText(table.concat(logBuffer, "\n"))
+        end
+        
+        -- Render function
+        local function updateDisplay()
+            -- Map rendering
+            local cx, cy, cz = mapData.home.x, mapData.home.y, mapData.home.z
+            local rangeX = math.floor(mapW / 2)
+            local rangeZ = math.floor(mapH / 2)
+            local out = {}
+            
+            for z = -rangeZ, rangeZ do
+                local row = ""
+                for x = -rangeX, rangeX do
+                    local wx = cx + x
+                    local wz = cz + z
+                    local k = keyFrom(wx, cy, wz)
+                    
+                    if x == 0 and z == 0 then
+                        row = row .. "H"
+                    elseif mapData.visited[k] then
+                        row = row .. "."
+                    else
+                        local hasOre = false
+                        for _, o in ipairs(mapData.ores) do
+                            if o.x == wx and o.z == wz then
+                                hasOre = true
+                                break
+                            end
+                        end
+                        if hasOre then
+                            row = row .. "*"
+                        elseif mapData.blocks[k] then
+                            row = row .. "#"
+                        else
+                            row = row .. " "
+                        end
+                    end
+                end
+                table.insert(out, row)
+            end
+            mapBox:setText(table.concat(out, "\n"))
+            
+            -- Info panel
+            local infoText = string.format(
+                "ORES: %d\n" ..
+                "VISITED: %d\n" ..
+                "%s\n" ..
+                "Recent Ores:\n",
+                #mapData.ores,
+                (function()
+                    local count = 0
+                    for _ in pairs(mapData.visited) do count = count + 1 end
+                    return count
+                end)(),
+                string.rep("-", 21)
+            )
+            
+            local maxOres = math.min(10, #mapData.ores)
+            for i = 1, maxOres do
+                local o = mapData.ores[i]
+                local oreName = o.name:match("(%w+)_ore") or "ore"
+                local status = o.claimed and "C" or " "
+                infoText = infoText .. string.format("[%s] %s\n  %d,%d,%d\n", 
+                    status, oreName, o.x, o.y, o.z)
+            end
+            
+            if #mapData.ores > 10 then
+                infoText = infoText .. string.format("...+%d more", #mapData.ores - 10)
+            end
+            
+            infoBox:setText(infoText)
+            
+            -- Status bar
+            statusBar:setText(string.format(
+                "ID:%d | Protocol:%s | Ores:%d | Press Q to quit",
+                COMPUTER_ID, PROTOCOL, #mapData.ores
+            ))
+        end
+        
+        -- Initial update
+        updateDisplay()
+        addLog("SmartMiner started")
+        addLog(string.format("Computer ID: %d", COMPUTER_ID))
+        
+        -- Schedule periodic updates
+        main:addThread():start(function()
+            while true do
+                updateDisplay()
+                sleep(1)
+            end
+        end)
+        
+        -- Schedule rednet listener
+        main:addThread():start(function()
+            while true do
+                local senderId, message = rednet.receive(PROTOCOL, 0.5)
+                if senderId then
+                    addLog(string.format("< Turtle %d: %s", senderId, message.type or "?"))
+                    handleRequest(senderId, message)
+                    updateDisplay()
+                end
+            end
+        end)
+        
+        -- Schedule auto-save
+        main:addThread():start(function()
+            while true do
+                sleep(AUTO_SAVE_INTERVAL)
+                saveMap()
+                addLog(string.format("Map saved (%d ores)", #mapData.ores))
+            end
+        end)
+        
+        -- Quit handler
+        main:onEvent(function(event, key)
+            if event == "key" and key == keys.q then
+                saveMap()
+                basalt.stop()
+            end
+        end)
+        
+        print("Basalt GUI initialized. Press Q to quit.")
+        
+        -- Start Basalt (v2 API - NO .show() method)
+        basalt.autoUpdate()
+    end
+end
+
+----------------------------------
+-- TEXT MODE FALLBACK
+----------------------------------
 if not BASALT then
     term.clear()
     term.setCursorPos(1, 1)
