@@ -136,6 +136,49 @@ if savedHome then
     facing = homeFacing
     print(string.format("✓ Loaded home: %d, %d, %d", savedHome.x, savedHome.y, savedHome.z))
     print(string.format("✓ Facing: %s", ({"north","east","south","west"})[homeFacing+1] or "unknown"))
+    
+    -- Verify turtle is at home position
+    local currentPos = getPos()
+    local atHome = (currentPos.x == homePos.x and currentPos.y == homePos.y and currentPos.z == homePos.z)
+    
+    if not atHome then
+        print(string.format("⚠ Warning: Not at home! (at %d,%d,%d)", currentPos.x, currentPos.y, currentPos.z))
+        print("Please manually return turtle to home base:")
+        print(string.format("  Target: %d, %d, %d", homePos.x, homePos.y, homePos.z))
+        print("")
+        print("Or delete home_location.txt to set new home")
+        print("Press Enter to continue anyway...")
+        read()
+    end
+    
+    -- Verify chest is still there
+    print("Verifying chest...")
+    turtle.turnLeft()
+    turtle.turnLeft()
+    
+    local ok, chestData = turtle.inspect()
+    if not ok or not string.find(chestData.name or "", "chest") then
+        turtle.turnLeft()
+        turtle.turnLeft()
+        print("")
+        print("═══════════════════════════════════")
+        print("ERROR: Chest not found at home!")
+        print("═══════════════════════════════════")
+        print("Expected chest behind home position")
+        print(string.format("Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
+        print("")
+        print("Please:")
+        print("  1. Place chest behind turtle")
+        print("  2. OR delete home_location.txt")
+        print("  3. Then restart miner_v2")
+        print("═══════════════════════════════════")
+        error("Chest verification failed")
+    end
+    
+    print("✓ Chest verified!")
+    turtle.turnLeft()
+    turtle.turnLeft()
+    
     print("✓ Ready to mine!")
     print("")
     print("(To reset home: delete home_location.txt)")
@@ -462,6 +505,31 @@ local function depositToChest()
     turtle.turnLeft()
     facing = (facing + 2) % 4
     
+    -- Verify chest is still there
+    local ok, blockData = turtle.inspect()
+    if not ok or not string.find(blockData.name or "", "chest") then
+        print("ERROR: Chest not found at home!")
+        print("Expected chest behind home position")
+        print("Please replace chest or reset home location")
+        print("")
+        print("Keeping items in inventory...")
+        
+        -- Turn back
+        turtle.turnLeft()
+        turtle.turnLeft()
+        facing = (facing + 2) % 4
+        
+        -- Notify computer
+        rednet.send(COMPUTER_ID, {
+            type = "status_update",
+            status = "ERROR: No chest at home!",
+            position = homePos
+        }, PROTOCOL)
+        
+        return false
+    end
+    
+    -- Chest found, deposit items
     local deposited = 0
     for i = 1, 16 do
         local item = turtle.getItemDetail(i)
@@ -473,14 +541,15 @@ local function depositToChest()
         end
     end
     
+    print(string.format("✓ Deposited %d items", deposited))
+    
     -- Turn back
     turtle.turnLeft()
     turtle.turnLeft()
     facing = (facing + 2) % 4
     
     smartRefuel()
-    print(string.format("✓ Deposited %d stacks", deposited))
-    return deposited
+    return true
 end
 
 local function inventoryAlmostFull()
@@ -600,7 +669,7 @@ while true do
             }, PROTOCOL)
             
             print("Returning to base...")
-            moveTo(homePos.x, homePos.y, homePos.z)
+            moveAbs(homePos.x, homePos.y, homePos.z)
             depositToChest()
             
             -- Send arrived status
@@ -691,7 +760,7 @@ while true do
         if idleCount >= 6 then
             print("WARNING: Scanner not responding!")
             print("Returning to home base...")
-            moveTo(homePos.x, homePos.y, homePos.z)
+            moveAbs(homePos.x, homePos.y, homePos.z)
             depositToChest()
             print("At home. Waiting for scanner...")
             sleep(30)
