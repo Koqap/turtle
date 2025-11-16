@@ -62,14 +62,21 @@ end
 local function saveMap()
     local path = getDiskPath()
     if not path then 
-        print("No disk present for saving")
-        return 
+        return  -- No disk, skip saving
     end
-    local f = fs.open(path.."/minerMap.txt", "w")
-    if f then 
-        f.write(textutils.serialize(mapData))
-        f.close()
-        print("Map saved to disk")
+    
+    -- Try to save, handle errors
+    local ok, err = pcall(function()
+        local f = fs.open(path.."/minerMap.txt", "w")
+        if f then 
+            f.write(textutils.serialize(mapData))
+            f.close()
+        end
+    end)
+    
+    if not ok then
+        print("Warning: Could not save to disk (disk full or error)")
+        -- Continue anyway, don't crash
     end
 end
 
