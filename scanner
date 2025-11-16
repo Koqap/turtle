@@ -816,21 +816,37 @@ if BASALT then
         end)
         
         returnButton:onClick(function()
+            addLog("RETURN button clicked")
+            
             local turtleCount = 0
-            for id, _ in pairs(turtles) do
+            local sentTo = {}
+            
+            for id, data in pairs(turtles) do
                 turtleCount = turtleCount + 1
+                table.insert(sentTo, id)
+                
                 -- Send return home command
-                rednet.send(id, {
+                local success = rednet.send(id, {
                     type = "return_home"
                 }, PROTOCOL)
-                addLog(string.format("Sent RETURN command to Turtle #%d", id))
+                
+                if success then
+                    addLog(string.format("→ Sent RETURN to Turtle #%d", id))
+                    print(string.format("Sent return_home to turtle %d", id))
+                else
+                    addLog(string.format("✗ Failed to send to Turtle #%d", id))
+                end
             end
             
             if turtleCount == 0 then
-                addLog("No turtles connected!")
+                addLog("✗ No turtles connected!")
+                print("WARNING: No turtles in tracking list")
+                print("Turtles table is empty")
             else
-                addLog(string.format(">>> %d turtle(s) returning home <<<", turtleCount))
+                addLog(string.format(">>> Sent RETURN to %d turtle(s) <<<", turtleCount))
+                print(string.format("Return command sent to turtles: %s", table.concat(sentTo, ", ")))
             end
+            
             updateDisplay()
         end)
         

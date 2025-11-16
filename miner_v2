@@ -648,18 +648,18 @@ print("Requesting initial scan...")
 requestScan()
 sleep(2)
 
-local miningCycle = 0
-local idleCount = 0
-
-while true do
-    miningCycle = miningCycle + 1
-    print(string.format("=== Cycle %d ===", miningCycle))
-    
+----------------------------------
+-- COMMAND HANDLER
+----------------------------------
+local function checkCommands()
     -- Check for commands from computer (non-blocking)
     local senderId, message = rednet.receive(PROTOCOL, 0)
     if senderId and message then
         if message.type == "return_home" then
+            print("")
+            print("═══════════════════════════════════")
             print("*** RETURN HOME command received! ***")
+            print("═══════════════════════════════════")
             
             -- Send acknowledgment
             rednet.send(COMPUTER_ID, {
@@ -679,10 +679,25 @@ while true do
                 position = homePos
             }, PROTOCOL)
             
-            print("At home. Press Ctrl+T to stop or waiting for next command...")
+            print("✓ At home. Resuming in 5 seconds...")
+            print("(Press Ctrl+T to stop)")
+            print("═══════════════════════════════════")
             sleep(5)
+            return true
         end
     end
+    return false
+end
+
+local miningCycle = 0
+local idleCount = 0
+
+while true do
+    -- Check for commands at start of cycle
+    checkCommands()
+    
+    miningCycle = miningCycle + 1
+    print(string.format("=== Cycle %d ===", miningCycle))
     
     -- Check inventory
     if inventoryAlmostFull() then
@@ -691,8 +706,14 @@ while true do
         depositToChest()
     end
     
+    -- Check for commands after deposit
+    checkCommands()
+    
     -- Check fuel
     smartRefuel()
+    
+    -- Check for commands before requesting path
+    checkCommands()
     
     -- Request path to next ore
     local steps, target = requestPath()
@@ -745,10 +766,16 @@ while true do
                 }, PROTOCOL)
             end
         end
+        
+        -- Check for commands after mining
+        checkCommands()
     else
         -- No ores available
         idleCount = idleCount + 1
         print(string.format("Idle (no ores) - count: %d", idleCount))
+        
+        -- Check for commands during idle
+        checkCommands()
         
         if idleCount >= 3 then
             print("Requesting new scan...")
