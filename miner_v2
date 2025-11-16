@@ -783,39 +783,52 @@ if savedHome then
             moveAbs(homePos.x, homePos.y, homePos.z)
             
             print("✓ Arrived at home!")
+            
+            -- After navigation, direction might be wrong!
+            -- Reset facing to unknown so chest check will find it
+            print("Checking orientation...")
         else
             print("✓ Turtle at home position")
         end
     end
     
-    -- Verify chest is accessible
+    -- Verify chest is accessible (always check all directions!)
     print("Verifying chest...")
     
     -- Try all 4 directions to find chest
     local chestFound = false
     local chestDirection = nil
+    local dirNames = {[0]="North", [1]="East", [2]="South", [3]="West"}
     
+    print("  Scanning all directions...")
     for dir = 0, 3 do
         local ok, blockData = turtle.inspect()
         if ok and blockData and blockData.name then
+            print(string.format("  Direction %d (%s): %s", facing, dirNames[facing], blockData.name))
             if string.find(blockData.name, "chest") then
                 chestFound = true
                 chestDirection = facing
-                print(string.format("✓ Chest found at direction %d", facing))
+                print(string.format("✓ Chest found facing %s (direction %d)", dirNames[facing], facing))
                 
-                -- Update homeFacing to correct direction
-                -- Turtle should face AWAY from chest
-                homeFacing = (facing + 2) % 4
-                facing = homeFacing
-                
-                -- Turn to face away from chest
+                -- Turtle is currently FACING the chest
+                -- We need to face AWAY from chest
+                print("  Turning to face away from chest...")
                 turtle.turnLeft()
                 turtle.turnLeft()
+                facing = (facing + 2) % 4
+                
+                -- This is the correct home facing
+                homeFacing = facing
+                
+                print(string.format("✓ Now facing %s (away from chest)", dirNames[facing]))
                 
                 -- Save corrected facing
                 saveHomeLocation(homePos, homeFacing)
+                print("✓ Direction saved")
                 break
             end
+        else
+            print(string.format("  Direction %d (%s): Nothing", facing, dirNames[facing]))
         end
         
         -- Try next direction
