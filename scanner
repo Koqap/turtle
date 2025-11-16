@@ -383,8 +383,14 @@ if BASALT then
     
     if not ok then
         print("Basalt not available, using text mode")
+        print("Error:", basalt)
+        print("")
+        print("To install Basalt, run:")
+        print("  wget run https://basalt.madefor.cc/install.lua")
+        print("")
         BASALT = false
     else
+        print("Basalt loaded successfully!")
         -- Create main frame
         local main = basalt.createFrame()
         
