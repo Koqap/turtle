@@ -77,6 +77,43 @@ local function getPos()
 end
 
 ----------------------------------
+-- PERSISTENT STORAGE
+----------------------------------
+local HOME_FILE = "home_location.txt"
+
+local function saveHomeLocation(pos, face)
+    local f = fs.open(HOME_FILE, "w")
+    if f then
+        f.writeLine(textutils.serialize({
+            x = pos.x,
+            y = pos.y,
+            z = pos.z,
+            facing = face
+        }))
+        f.close()
+        print("✓ Home location saved")
+        return true
+    end
+    return false
+end
+
+local function loadHomeLocation()
+    if fs.exists(HOME_FILE) then
+        local f = fs.open(HOME_FILE, "r")
+        if f then
+            local data = f.readAll()
+            f.close()
+            local ok, result = pcall(function() return textutils.unserialize(data) end)
+            if ok and result then
+                print("✓ Found saved home location")
+                return result
+            end
+        end
+    end
+    return nil
+end
+
+----------------------------------
 -- BASE STATION CHEST SETUP
 ----------------------------------
 print("═══════════════════════════════════")
@@ -85,32 +122,55 @@ print("════════════════════════�
 print("Turtle ID:", TURTLE_ID)
 print("Computer ID:", COMPUTER_ID)
 print("")
-print("Place chest BEHIND turtle")
-print("(Turtle should face AWAY from chest)")
-print("")
-print("Press ENTER when ready...")
-read()
 
--- Save home position
-print("Getting home position...")
-local homePos = getPos()
-print(string.format("✓ Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
+local homePos
+local homeFacing
 
--- Verify chest
-print("Verifying chest...")
-turtle.turnLeft()
-turtle.turnLeft()
+-- Try to load saved home location
+local savedHome = loadHomeLocation()
 
-local ok, chestData = turtle.inspect()
-if not ok or not string.find(chestData.name or "", "chest") then
-    turtle.turnLeft()
-    turtle.turnLeft()
-    error("ERROR: No chest found behind turtle!")
+if savedHome then
+    print(string.format("Saved home: %d, %d, %d", savedHome.x, savedHome.y, savedHome.z))
+    print("Use saved location? (Y/n)")
+    local input = read()
+    
+    if input ~= "n" and input ~= "N" then
+        homePos = {x=savedHome.x, y=savedHome.y, z=savedHome.z}
+        homeFacing = savedHome.facing
+        facing = homeFacing
+        print("✓ Using saved home location")
+    end
 end
 
-print("✓ Chest detected!")
-turtle.turnLeft()
-turtle.turnLeft()
+-- If no saved location or user declined, set up new one
+if not homePos then
+    print("Place chest BEHIND turtle")
+    print("(Turtle should face AWAY from chest)")
+    print("")
+    print("Press ENTER when ready...")
+    read()
+
+    -- Save home position
+    print("Getting home position...")
+    homePos = getPos()
+    print(string.format("✓ Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
+
+    -- Verify chest
+    print("Verifying chest...")
+    turtle.turnLeft()
+    turtle.turnLeft()
+
+    local ok, chestData = turtle.inspect()
+    if not ok or not string.find(chestData.name or "", "chest") then
+        turtle.turnLeft()
+        turtle.turnLeft()
+        error("ERROR: No chest found behind turtle!")
+    end
+
+    print("✓ Chest detected!")
+    turtle.turnLeft()
+    turtle.turnLeft()
+end
 
 ----------------------------------
 -- DETECT FACING DIRECTION
@@ -147,11 +207,17 @@ local function detectFacing()
     return 0  -- Default
 end
 
-facing = detectFacing()
+-- Only detect facing if not already set
+if not homeFacing then
+    facing = detectFacing()
+    homeFacing = facing
+    -- Save the home location with facing
+    saveHomeLocation(homePos, homeFacing)
+end
+
 local dirNames = {[0]="north", [1]="east", [2]="south", [3]="west"}
 print(string.format("✓ Facing: %s", dirNames[facing]))
-
-local homeFacing = facing
+print(string.format("✓ Home: %d,%d,%d (Saved)", homePos.x, homePos.y, homePos.z))
 print("✓ Setup complete")
 print("═══════════════════════════════════")
 
@@ -590,8 +656,22 @@ while true do
             idleCount = 0
         end
         
+        -- Emergency: If scanner not responding, return home
+        if idleCount >= 6 then
+            print("WARNING: Scanner not responding!")
+            print("Returning to home base...")
+            moveTo(homePos.x, homePos.y, homePos.z)
+            depositToChest()
+            print("At home. Waiting for scanner...")
+            sleep(30)
+            idleCount = 0
+        end
+        
         sleep(5)
     end
+    
+    -- Periodic refuel and smart checks
+    smartRefuel()
 end
 
 ----------------------------------
