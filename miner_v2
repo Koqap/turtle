@@ -118,6 +118,67 @@ local function loadHomeLocation()
 end
 
 ----------------------------------
+-- ENVIRONMENT DETECTOR
+----------------------------------
+local function detectChestEnvironment()
+    print("═══════════════════════════════")
+    print("  ENVIRONMENT AUTO-DETECTION")
+    print("═══════════════════════════════")
+    print("")
+    print("Scanning for chest...")
+    
+    -- Get current position
+    local pos = getPos()
+    print(string.format("Current position: %d, %d, %d", pos.x, pos.y, pos.z))
+    
+    -- Check all 4 horizontal directions for chest
+    local chestDir = nil
+    for dir = 0, 3 do
+        local ok, blockData = turtle.inspect()
+        if ok and blockData.name and string.find(blockData.name, "chest") then
+            chestDir = dir
+            print(string.format("✓ Found chest at direction %d!", dir))
+            break
+        end
+        turtle.turnRight()
+    end
+    
+    if chestDir then
+        -- Face away from chest
+        turtle.turnRight()
+        turtle.turnRight()
+        local awayDir = (chestDir + 2) % 4
+        
+        print(string.format("✓ Chest detected! Facing away (direction %d)", awayDir))
+        print(string.format("✓ Auto-configured home: %d, %d, %d", pos.x, pos.y, pos.z))
+        
+        return {
+            x = pos.x,
+            y = pos.y,
+            z = pos.z,
+            facing = awayDir
+        }
+    end
+    
+    -- Check up and down
+    local ok, blockData = turtle.inspectUp()
+    if ok and blockData.name and string.find(blockData.name, "chest") then
+        print("⚠ Chest is ABOVE! Move turtle down 1 block")
+        return nil
+    end
+    
+    ok, blockData = turtle.inspectDown()
+    if ok and blockData.name and string.find(blockData.name, "chest") then
+        print("⚠ Chest is BELOW! Move turtle up 1 block")
+        return nil
+    end
+    
+    print("✗ No chest found in any direction!")
+    print("Please place chest next to turtle and retry")
+    return nil
+end
+
+----------------------------------
 -- BASE STATION CHEST SETUP
 ----------------------------------
 print("═══════════════════════════════════")
@@ -143,35 +204,54 @@ if savedHome then
     print("(Position check will happen after loading functions...)")
     print("")
 else
-    -- First time setup
+    -- First time setup with auto-detection
     print("FIRST TIME SETUP")
     print("")
-    print("Place chest BEHIND turtle")
-    print("(Turtle should face AWAY from chest)")
-    print("")
-    print("Press ENTER when ready...")
-    read()
+    
+    -- Try auto-detection first
+    local detected = detectChestEnvironment()
+    
+    if detected then
+        homePos = {x=detected.x, y=detected.y, z=detected.z}
+        homeFacing = detected.facing
+        facing = homeFacing
+        
+        -- Save immediately
+        saveHomeLocation()
+        print("")
+        print("✓ Environment auto-configured and saved!")
+        print("")
+    else
+        -- Fallback to manual setup
+        print("")
+        print("MANUAL SETUP")
+        print("Place chest BEHIND turtle")
+        print("(Turtle should face AWAY from chest)")
+        print("")
+        print("Press ENTER when ready...")
+        read()
 
-    -- Save home position
-    print("Getting home position...")
-    homePos = getPos()
-    print(string.format("✓ Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
+        -- Save home position
+        print("Getting home position...")
+        homePos = getPos()
+        print(string.format("✓ Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
 
-    -- Verify chest
-    print("Verifying chest...")
-    turtle.turnLeft()
-    turtle.turnLeft()
-
-    local ok, chestData = turtle.inspect()
-    if not ok or not string.find(chestData.name or "", "chest") then
+        -- Verify chest
+        print("Verifying chest...")
         turtle.turnLeft()
         turtle.turnLeft()
-        error("ERROR: No chest found behind turtle!")
+
+        local ok, chestData = turtle.inspect()
+        if not ok or not string.find(chestData.name or "", "chest") then
+            turtle.turnLeft()
+            turtle.turnLeft()
+            error("ERROR: No chest found behind turtle!")
+        end
+
+        print("✓ Chest detected!")
+        turtle.turnLeft()
+        turtle.turnLeft()
     end
-
-    print("✓ Chest detected!")
-    turtle.turnLeft()
-    turtle.turnLeft()
 end
 
 ----------------------------------

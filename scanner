@@ -15,6 +15,7 @@ local PROTOCOL = "smartminer"        -- rednet protocol
 -- IDs and networking
 local COMPUTER_ID = os.getComputerID and os.getComputerID() or 1
 local TURTLE_TIMEOUT = 5
+local systemRunning = false  -- Manual start/stop control
 
 ----------------------------------
 -- PERIPHERALS SETUP
@@ -346,10 +347,15 @@ local function handleRequest(id, msg)
     end
 
     if msg.type == "ping" then
-        -- Simple ping response for connection testing
+        -- Simple ping response for connection testing (always respond to pings)
         print(string.format("[PING] Turtle %d connected", id))
         updateTurtle(id, {status = "connected"})
         rednet.send(id, {type = "pong"}, PROTOCOL)
+        
+    elseif not systemRunning then
+        -- System stopped - ignore all requests except ping
+        print(string.format("[%s] Ignored request from turtle %d (system stopped)", os.time(), id))
+        return
         
     elseif msg.type == "request_scan" then
         print(string.format("[%s] Scan request from turtle %d", os.time(), id))
@@ -729,18 +735,26 @@ if BASALT then
             end
         end
         
-        -- Create scan button
-        local scanButton = main:addButton()
-            :setText("SCAN NOW")
+        -- Create start/stop button
+        local startStopButton = main:addButton()
+            :setText("START")
             :setPosition(2, 3)
             :setSize(10, 1)
             :setBackground(colors.green)
             :setForeground(colors.white)
         
+        -- Create scan button
+        local scanButton = main:addButton()
+            :setText("SCAN")
+            :setPosition(13, 3)
+            :setSize(7, 1)
+            :setBackground(colors.blue)
+            :setForeground(colors.white)
+        
         -- Create return home button
         local returnButton = main:addButton()
             :setText("RETURN")
-            :setPosition(13, 3)
+            :setPosition(21, 3)
             :setSize(8, 1)
             :setBackground(colors.orange)
             :setForeground(colors.white)
@@ -789,9 +803,27 @@ if BASALT then
             oreButtons[oreType] = btn
         end
         
+        -- Start/Stop button handler
+        startStopButton:onClick(function()
+            systemRunning = not systemRunning
+            
+            if systemRunning then
+                startStopButton:setText("STOP")
+                startStopButton:setBackground(colors.red)
+                addLog(">>> SYSTEM STARTED <<<")
+                addLog("Turtles can now request scans and paths")
+            else
+                startStopButton:setText("START")
+                startStopButton:setBackground(colors.green)
+                addLog(">>> SYSTEM STOPPED <<<")
+                addLog("Turtles will not receive responses")
+            end
+            updateDisplay()
+        end)
+        
         -- Scan button click handler (NOW addLog is defined)
         scanButton:onClick(function()
-            addLog(">>> SCAN STARTED <<<")
+            addLog(">>> MANUAL SCAN <<<")
             updateDisplay()
             
             local scan = doScan(SCAN_RADIUS)
@@ -853,24 +885,10 @@ if BASALT then
         -- Initialize
         addLog("SmartMiner initialized")
         addLog(string.format("Computer ID: %d", COMPUTER_ID))
-        
-        -- Do initial scan on startup
-        addLog("Performing initial scan...")
-        updateDisplay()
-        sleep(0.5)
-        
-        local initialScan = doScan(SCAN_RADIUS)
-        addLog(string.format("Scanned %d blocks", #initialScan))
-        
-        if #initialScan == 0 then
-            addLog("ERROR: Geo scanner not working!")
-            addLog("Check RIGHT side connection")
-        else
-            local beforeOres = #mapData.ores
-            addOresFromScan(initialScan, 0, 0, 0)
-            local afterOres = #mapData.ores
-            addLog(string.format("Found %d ores total", afterOres))
-        end
+        addLog("")
+        addLog("Click START to begin operations")
+        addLog("Click SCAN for manual scan")
+        addLog("Click RETURN to recall turtles")
         
         updateDisplay()
         
