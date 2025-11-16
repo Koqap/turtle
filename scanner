@@ -375,125 +375,18 @@ local function handleRequest(id, msg)
 end
 
 ----------------------------------
--- BASALT GUI
+-- BASALT GUI (DISABLED - USE TEXT MODE)
 ----------------------------------
-if BASALT then
-    print("Initializing Basalt GUI...")
-    local ok, basalt = pcall(require, "basalt")
-    
-    if not ok then
-        print("Basalt not available, using text mode")
-        BASALT = false
-    else
-        local screen = basalt.createFrame()
-        local mapW, mapH = 48, 24
-        
-        local mapWindow = screen:addLabel()
-        mapWindow:setPosition(1, 1)
-        mapWindow:setSize(mapW, mapH)
-        mapWindow:setBackground(colors.black)
-        mapWindow:setForeground(colors.white)
-
-        local panel = screen:addLabel()
-        panel:setPosition(mapW + 2, 1)
-        panel:setSize(20, mapH)
-        panel:setBackground(colors.gray)
-        panel:setForeground(colors.white)
-
-        local status = screen:addLabel()
-        status:setPosition(1, mapH + 1)
-        status:setSize(mapW + 21, 3)
-        status:setBackground(colors.black)
-        status:setForeground(colors.yellow)
-
-        local function render()
-            -- clear map
-            mapWindow:setText("")
-            -- draw scanned blocks within mapW x mapH window centered around home
-            local cx, cy, cz = mapData.home.x, mapData.home.y, mapData.home.z
-            local rangeX = math.floor(mapW / 2)
-            local rangeZ = math.floor(mapH / 2)
-            local out = {}
-            
-            for z = -rangeZ, rangeZ do
-                local row = ""
-                for x = -rangeX, rangeX do
-                    local wx = cx + x
-                    local wz = cz + z
-                    local k = keyFrom(wx, cy, wz)
-                    
-                    if x == 0 and z == 0 then
-                        row = row .. "H"  -- Home
-                    elseif mapData.visited[k] then 
-                        row = row .. "."  -- visited
-                    elseif mapData.blocks[k] and mapData.blocks[k]:find("ore") then 
-                        row = row .. "*"  -- ore
-                    elseif mapData.blocks[k] then 
-                        row = row .. "#"  -- block
-                    else 
-                        row = row .. " "  -- unknown
-                    end
-                end
-                table.insert(out, row)
-            end
-            mapWindow:setText(table.concat(out, "\n"))
-
-            -- Panel: show ore list
-            local panelText = "Ores:\n"
-            for i, o in ipairs(mapData.ores) do
-                local oreName = o.name:match("(%w+)_ore") or "ore"
-                panelText = panelText .. string.format("%d) %s (%d,%d,%d)\n", 
-                    i, oreName, o.x, o.y, o.z)
-            end
-            panel:setText(panelText)
-
-            -- Status
-            local s = string.format("Computer: %d | Protocol: %s | Ores: %d", 
-                COMPUTER_ID, PROTOCOL, #mapData.ores)
-            status:setText(s)
-        end
-
-        -- simple loop
-        screen:setBackground(colors.black)
-        screen:show()
-        
-        print("Basalt GUI started. Press Q to quit.")
-        local lastSave = os.clock()
-        
-        while true do
-            render()
-            
-            -- Auto-save check
-            if os.clock() - lastSave >= AUTO_SAVE_INTERVAL then 
-                saveMap()
-                lastSave = os.clock()
-            end
-            
-            -- Handle events
-            local event = {os.pullEventRaw()}
-            
-            if event[1] == "rednet_message" then
-                local senderId, message = event[2], event[3]
-                handleRequest(senderId, message)
-                
-            elseif event[1] == "key" and event[2] == keys.q then
-                saveMap()
-                break
-                
-            elseif event[1] == "terminate" then
-                saveMap()
-                break
-            end
-            
-            sleep(0.05)  -- small delay to prevent lag
-        end
-    end
-end
+-- Note: Basalt GUI has compatibility issues
+-- Using text mode for reliable operation
+BASALT = false
 
 ----------------------------------
 -- TEXT MODE (NO BASALT)
 ----------------------------------
 if not BASALT then
+    term.clear()
+    term.setCursorPos(1, 1)
     print("═══════════════════════════════════")
     print("  SMARTMINER COMPUTER BRAIN")
     print("═══════════════════════════════════")
@@ -503,22 +396,46 @@ if not BASALT then
     print("Modem:", modem and "OK" or "NOT FOUND")
     print("Disk Drive:", drive and "OK" or "NOT FOUND")
     print("")
+    print("Current Ores:", #mapData.ores)
+    print("")
     print("Listening for turtle requests...")
     print("Press Ctrl+T to stop")
+    print("═══════════════════════════════════")
+    print("")
     
     local lastSave = os.clock()
+    local lastStatus = os.clock()
     
     while true do
         local senderId, message, protocol = rednet.receive(PROTOCOL, 1)
         if senderId then
-            print(string.format("[%s] Request from turtle %d", os.time(), senderId))
+            print(string.format("[%s] Turtle %d: %s", 
+                os.date("%H:%M:%S"), senderId, message.type or "unknown"))
             handleRequest(senderId, message)
+            
+            -- Show ore count after handling request
+            if message.type == "request_path" then
+                print(string.format("  -> Ores remaining: %d", #mapData.ores))
+            elseif message.type == "ore_mined" then
+                print(string.format("  -> Ores remaining: %d", #mapData.ores))
+            elseif message.type == "request_scan" then
+                print(string.format("  -> Scanned blocks, total ores: %d", #mapData.ores))
+            end
         end
         
         -- Auto-save
         if os.clock() - lastSave >= AUTO_SAVE_INTERVAL then
             saveMap()
             lastSave = os.clock()
+            print(string.format("[%s] Map auto-saved (%d ores)", 
+                os.date("%H:%M:%S"), #mapData.ores))
+        end
+        
+        -- Periodic status update
+        if os.clock() - lastStatus >= 60 then
+            lastStatus = os.clock()
+            print(string.format("[%s] Status: %d ores tracked", 
+                os.date("%H:%M:%S"), #mapData.ores))
         end
     end
 end
