@@ -523,7 +523,7 @@ if BASALT then
         print("Basalt GUI initialized. Press Q to quit.")
         
         -- Start Basalt main loop
-        basalt.autoUpdate()
+        basalt.run()
     end
 end
 
