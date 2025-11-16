@@ -456,9 +456,13 @@ local function handleRequest(id, msg)
         rednet.send(id, { 
             type = "scan_result", 
             ores = mapData.ores,
-            scanned = #scan 
+            scanned = #scan,
+            has_envdetector = envDetector ~= nil  -- Tell turtle if we have environment detector
         }, PROTOCOL)
         print(string.format("  Sent %d ores to turtle", #mapData.ores))
+        if envDetector then
+            print("  Environment Detector: Available for smart navigation")
+        end
 
     elseif msg.type == "request_path" then
         print(string.format("[%s] Path request from turtle %d", os.time(), id))
@@ -586,7 +590,8 @@ local function handleRequest(id, msg)
         rednet.send(id, { 
             type = "path", 
             steps = simplePath, 
-            target = target 
+            target = target,
+            has_envdetector = envDetector ~= nil  -- Tell turtle if scanner has environment detector
         }, PROTOCOL)
 
     elseif msg.type == "ore_mined" then
@@ -632,6 +637,46 @@ local function handleRequest(id, msg)
             end
         end
         saveMap()
+        
+    elseif msg.type == "request_environment" then
+        print(string.format("[%s] Environment scan request from turtle %d", os.time(), id))
+        
+        if not envDetector then
+            print("  No Environment Detector available")
+            rednet.send(id, {
+                type = "environment_result",
+                available = false
+            }, PROTOCOL)
+            return
+        end
+        
+        local tx, ty, tz = msg.x or 0, msg.y or 0, msg.z or 0
+        local radius = msg.radius or 8  -- Default 8 block scan
+        
+        print(string.format("  Scanning %d blocks around turtle position...", radius))
+        local blocks = doScanWithEnvDetector(radius)
+        
+        -- Filter for obstacles (solid blocks turtle can't move through)
+        local obstacles = {}
+        for _, block in ipairs(blocks) do
+            -- Add blocks that might be obstacles
+            if block.name and not block.name:find("air") then
+                table.insert(obstacles, {
+                    x = block.x,
+                    y = block.y,
+                    z = block.z,
+                    name = block.name
+                })
+            end
+        end
+        
+        print(string.format("  Found %d obstacles", #obstacles))
+        rednet.send(id, {
+            type = "environment_result",
+            available = true,
+            obstacles = obstacles,
+            scanned = #blocks
+        }, PROTOCOL)
         
     elseif msg.type == "status_update" then
         print(string.format("[%s] Turtle %d: %s", os.time(), id, msg.status))
@@ -798,10 +843,12 @@ if BASALT then
         
         -- Define updateDisplay function BEFORE button
         local function updateDisplay()
-            -- Update status
+            -- Update status with environment detector info
+            local envStatus = envDetector and "EnvDet:OK" or "EnvDet:NO"
+            local scannerStatus = scanner and "Geo:OK" or "Geo:NO"
             statusLabel:setText(string.format(
-                " ID:%d | Protocol:%s | Ores:%d | Click SCAN button or Press Q=Quit",
-                COMPUTER_ID, PROTOCOL, #mapData.ores
+                " ID:%d | %s | %s | Ores:%d | Range:%d | Q=Quit",
+                COMPUTER_ID, scannerStatus, envStatus, #mapData.ores, MAX_MINING_RANGE
             ))
             
             -- Update ore list

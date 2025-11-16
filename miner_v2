@@ -1205,6 +1205,12 @@ local function requestPath()
     local id, msg = rednet.receive(PROTOCOL, 10)
     if id and msg and msg.type == "path" then
         stats.pathsReceived = stats.pathsReceived + 1
+        
+        -- Check if scanner has environment detector
+        if msg.has_envdetector then
+            print("  Scanner has Environment Detector")
+        end
+        
         if msg.steps and #msg.steps > 0 then
             print(string.format("✓ Path received: %d steps", #msg.steps))
             return msg.steps, msg.target
