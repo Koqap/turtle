@@ -4,7 +4,7 @@
 ----------------------------------
 -- CONFIGURATION
 ----------------------------------
-local COMPUTER_ID = 1                -- ID of the computer brain
+local COMPUTER_ID = 3                -- ID of the computer brain
 local PROTOCOL = "smartminer"        -- Must match computer
 local TURTLE_ID = os.getComputerID and os.getComputerID() or 2
 
