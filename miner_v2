@@ -441,6 +441,26 @@ print("✓ Setup complete")
 print("═══════════════════════════════════")
 
 ----------------------------------
+-- COMMAND HANDLING (MUST BE BEFORE MOVEMENT FUNCTIONS)
+----------------------------------
+local returnHomeRequested = false  -- Global flag for immediate return
+
+local function checkCommandsNonBlocking()
+    -- Quick check for commands without processing (for use in loops)
+    local senderId, message = rednet.receive(PROTOCOL, 0)
+    if senderId and message and message.type == "return_home" then
+        returnHomeRequested = true
+        print("")
+        print("════════════════════════════════════════")
+        print("*** RETURN HOME command received! ***")
+        print("*** Interrupting current operation! ***")
+        print("════════════════════════════════════════")
+        return true
+    end
+    return false
+end
+
+----------------------------------
 -- SMART MOVEMENT FUNCTIONS
 ----------------------------------
 local function tryForward()
@@ -1494,10 +1514,9 @@ requestScan()
 sleep(2)
 
 ----------------------------------
--- POSITION UPDATE & COMMAND HANDLING
+-- POSITION UPDATE
 ----------------------------------
 local lastPositionUpdate = 0
-local returnHomeRequested = false  -- Global flag for immediate return
 
 local function sendPositionUpdate()
     -- Send position update every 5 seconds
@@ -1513,21 +1532,9 @@ local function sendPositionUpdate()
     }, PROTOCOL)
 end
 
-local function checkCommandsNonBlocking()
-    -- Quick check for commands without processing (for use in loops)
-    local senderId, message = rednet.receive(PROTOCOL, 0)
-    if senderId and message and message.type == "return_home" then
-        returnHomeRequested = true
-        print("")
-        print("════════════════════════════════════════")
-        print("*** RETURN HOME command received! ***")
-        print("*** Interrupting current operation! ***")
-        print("════════════════════════════════════════")
-        return true
-    end
-    return false
-end
-
+----------------------------------
+-- FULL COMMAND HANDLER (processes return home)
+----------------------------------
 local function checkCommands()
     -- Check for commands from computer (non-blocking)
     local senderId, message = rednet.receive(PROTOCOL, 0)
