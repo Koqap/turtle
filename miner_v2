@@ -137,7 +137,15 @@ end
 -- Scanner computer has it and sends chest data via rednet
 
 local function requestChestScan(fromPos)
-    print("Requesting chest scan from scanner...")
+    print("")
+    print("═══════════════════════════════════════════")
+    print("REQUESTING CHEST SCAN FROM SCANNER")
+    print("═══════════════════════════════════════════")
+    print(string.format("  Turtle position: %d, %d, %d", fromPos.x, fromPos.y, fromPos.z))
+    print(string.format("  Scanner ID: %d", COMPUTER_ID))
+    print(string.format("  Protocol: %s", PROTOCOL))
+    print("")
+    print("  Sending request...")
     
     rednet.send(COMPUTER_ID, {
         type = "request_chest_scan",
@@ -146,18 +154,42 @@ local function requestChestScan(fromPos)
         z = fromPos.z
     }, PROTOCOL)
     
+    print("  ✓ Request sent! Waiting for response...")
+    
     -- Wait for response (timeout 10 seconds)
     local timeout = 10
     local startTime = os.clock()
     
     while os.clock() - startTime < timeout do
         local id, msg = rednet.receive(PROTOCOL, 0.5)
+        if id and msg then
+            print(string.format("  → Received message from ID %d, type: %s", id, msg.type or "unknown"))
+        end
         if id == COMPUTER_ID and msg and msg.type == "chest_scan_result" then
+            print("")
+            if msg.success then
+                print("  ✓ SUCCESS! Scanner found chest")
+                print(string.format("    Chest at: %d, %d, %d", msg.chest.x, msg.chest.y, msg.chest.z))
+            else
+                print("  ✗ FAILED! Scanner error:")
+                print("    " .. (msg.error or "Unknown error"))
+            end
+            print("═══════════════════════════════════════════")
+            print("")
             return msg.chest, msg.success
         end
     end
     
-    print("  ✗ No response from scanner")
+    print("")
+    print("  ✗ TIMEOUT: No response from scanner after 10 seconds!")
+    print("")
+    print("  Troubleshooting:")
+    print("    1. Is scanner computer running?")
+    print("    2. Is scanner system STARTED? (click START button)")
+    print("    3. Check scanner console for errors")
+    print("    4. Verify wireless modem on both sides")
+    print("═══════════════════════════════════════════")
+    print("")
     return nil, false
 end
 

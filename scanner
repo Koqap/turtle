@@ -472,8 +472,13 @@ local function handleRequest(id, msg)
         updateTurtle(id, {status = "connected"})
         rednet.send(id, {type = "pong"}, PROTOCOL)
         
+    elseif msg.type == "request_chest_scan" then
+        -- ALWAYS allow chest scans (needed for turtle startup, even when system stopped)
+        -- Handle this immediately, don't check systemRunning
+        -- (Implementation continues below in the elseif chain)
+        
     elseif not systemRunning then
-        -- System stopped - ignore all requests except ping
+        -- System stopped - ignore all requests except ping and chest scans
         print(string.format("[%s] Ignored request from turtle %d (system stopped)", os.time(), id))
         return
         
@@ -675,10 +680,14 @@ local function handleRequest(id, msg)
             has_envdetector = envDetector ~= nil  -- Tell turtle if scanner has environment detector
         }, PROTOCOL)
 
-    elseif msg.type == "request_chest_scan" then
+    end
+    
+    -- Handle chest scan requests (moved outside systemRunning check)
+    if msg.type == "request_chest_scan" then
         print("")
         print("═══════════════════════════════════════════════")
         print(string.format("[%s] CHEST SCAN REQUEST from turtle %d", os.time(), id))
+        print(string.format("  System status: %s (chest scans always allowed)", systemRunning and "RUNNING" or "STOPPED"))
         print("═══════════════════════════════════════════════")
         local turtleX, turtleY, turtleZ = msg.x or 0, msg.y or 0, msg.z or 0
         print(string.format("  Turtle position: %d, %d, %d", turtleX, turtleY, turtleZ))
@@ -801,8 +810,16 @@ local function handleRequest(id, msg)
                 z = closest.z
             }
         }, PROTOCOL)
-        
-    elseif msg.type == "ore_mined" then
+        return  -- Exit after handling chest scan
+    end
+    
+    -- Check systemRunning for all other requests
+    if not systemRunning then
+        -- Already handled above
+        return
+    end
+    
+    if msg.type == "ore_mined" then
         print(string.format("[%s] Ore mined report from turtle %d", os.time(), id))
         local ox, oy, oz = msg.x, msg.y, msg.z
         mapData.visited[keyFrom(ox, oy, oz)] = true
