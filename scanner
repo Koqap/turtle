@@ -6,7 +6,7 @@
 ----------------------------------
 local scannerSide = "right"          -- side where geo scanner is attached
 local modemSide = "left"             -- side where wireless modem is attached
-local BASALT = true                  -- set true if Basalt installed
+local BASALT = false                 -- set false (text mode, more stable)
 local SCAN_RADIUS = 8                -- scanner radius
 local AUTO_SAVE_INTERVAL = 30        -- seconds
 local PROTOCOL = "smartminer"        -- rednet protocol
@@ -375,15 +375,10 @@ local function handleRequest(id, msg)
 end
 
 ----------------------------------
--- BASALT GUI (DISABLED - USE TEXT MODE)
+-- TEXT MODE INTERFACE
 ----------------------------------
--- Note: Basalt GUI has compatibility issues
--- Using text mode for reliable operation
-BASALT = false
-
-----------------------------------
--- TEXT MODE (NO BASALT)
-----------------------------------
+-- Basalt GUI disabled for stability
+-- Using enhanced text mode for monitoring
 if not BASALT then
     term.clear()
     term.setCursorPos(1, 1)
