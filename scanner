@@ -507,38 +507,39 @@ if BASALT then
             end
         end)
         
-        -- Background thread: Keyboard handler
-        basalt.schedule(function()
-            while true do
-                local event, key = os.pullEvent("key")
-                if key == keys.q then
-                    addLog("Shutting down...")
-                    saveMap()
-                    sleep(1)
-                    basalt.stop()
-                    break
-                elseif key == keys.s then
-                    addLog("Manual scan triggered...")
-                    local scan = doScan(SCAN_RADIUS)
-                    addLog(string.format("Scanned %d blocks", #scan))
+        -- Keyboard handler using Basalt events
+        local function handleKeyPress(self, event, key)
+            if key == keys.q then
+                addLog("Shutting down...")
+                saveMap()
+                sleep(0.5)
+                basalt.stop()
+            elseif key == keys.s then
+                addLog(">>> SCAN STARTED <<<")
+                updateDisplay()
+                
+                local scan = doScan(SCAN_RADIUS)
+                addLog(string.format("Scanned %d blocks", #scan))
+                
+                if #scan == 0 then
+                    addLog("ERROR: Geo scanner failed!")
+                    addLog("Check scanner on RIGHT side")
+                else
+                    local beforeOres = #mapData.ores
+                    addOresFromScan(scan, 0, 0, 0)
+                    local afterOres = #mapData.ores
+                    addLog(string.format("Found %d new ores", afterOres - beforeOres))
                     
-                    if #scan == 0 then
-                        addLog("ERROR: No blocks found!")
-                        addLog("Check geo scanner placement")
-                    else
-                        local beforeOres = #mapData.ores
-                        addOresFromScan(scan, 0, 0, 0)
-                        local afterOres = #mapData.ores
-                        addLog(string.format("Found %d new ores", afterOres - beforeOres))
-                        
-                        if afterOres == beforeOres then
-                            addLog("No ores in scan range")
-                        end
+                    if afterOres == beforeOres then
+                        addLog("No ores in 16 block radius")
                     end
-                    updateDisplay()
                 end
+                updateDisplay()
             end
-        end)
+        end
+        
+        -- Attach keyboard handler to main frame
+        main:onEvent(handleKeyPress)
         
         print("Basalt GUI initialized. Press Q to quit.")
         
