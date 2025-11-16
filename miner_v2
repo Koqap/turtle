@@ -722,14 +722,18 @@ local testId, testMsg = rednet.receive(PROTOCOL, 3)
 if testId then
     print("✓ Connected to computer ID:", COMPUTER_ID)
 else
-    print("✗ Cannot reach computer ID:", COMPUTER_ID)
-    print("Make sure:")
-    print("  1. Scanner is running")
-    print("  2. Both have wireless modems")
-    print("  3. COMPUTER_ID is correct")
+    print("⚠ Cannot reach computer ID:", COMPUTER_ID)
+    print("Scanner appears offline. Continuing anyway...")
+    print("Note: Turtle will work in standalone mode")
+    print("  - No ore coordination with scanner")
+    print("  - Will mine randomly if no scanner")
     print("")
-    print("Press ENTER to continue anyway...")
-    read()
+    print("To fix later:")
+    print("  1. Start scanner computer")
+    print("  2. Check COMPUTER_ID matches")
+    print("  3. Restart turtle")
+    print("")
+    sleep(3)  -- Show message for 3 seconds
 end
 
 ----------------------------------
