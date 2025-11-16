@@ -493,6 +493,15 @@ local function handleRequest(id, msg)
             end
         end
         saveMap()
+        
+    elseif msg.type == "status_update" then
+        print(string.format("[%s] Turtle %d: %s", os.time(), id, msg.status))
+        
+        -- Update turtle tracking
+        updateTurtle(id, {
+            status = msg.status,
+            position = msg.position or {x=0, y=0, z=0}
+        })
     end
 end
 
@@ -724,8 +733,16 @@ if BASALT then
         local scanButton = main:addButton()
             :setText("SCAN NOW")
             :setPosition(2, 3)
-            :setSize(15, 1)
+            :setSize(10, 1)
             :setBackground(colors.green)
+            :setForeground(colors.white)
+        
+        -- Create return home button
+        local returnButton = main:addButton()
+            :setText("RETURN")
+            :setPosition(13, 3)
+            :setSize(8, 1)
+            :setBackground(colors.orange)
             :setForeground(colors.white)
         
         -- Create ore filter label
@@ -794,6 +811,25 @@ if BASALT then
                 else
                     addLog(string.format("Added %d new ores!", afterOres - beforeOres))
                 end
+            end
+            updateDisplay()
+        end)
+        
+        returnButton:onClick(function()
+            local turtleCount = 0
+            for id, _ in pairs(turtles) do
+                turtleCount = turtleCount + 1
+                -- Send return home command
+                rednet.send(id, {
+                    type = "return_home"
+                }, PROTOCOL)
+                addLog(string.format("Sent RETURN command to Turtle #%d", id))
+            end
+            
+            if turtleCount == 0 then
+                addLog("No turtles connected!")
+            else
+                addLog(string.format(">>> %d turtle(s) returning home <<<", turtleCount))
             end
             updateDisplay()
         end)

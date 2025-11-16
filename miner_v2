@@ -584,6 +584,35 @@ while true do
     miningCycle = miningCycle + 1
     print(string.format("=== Cycle %d ===", miningCycle))
     
+    -- Check for commands from computer (non-blocking)
+    local senderId, message = rednet.receive(PROTOCOL, 0)
+    if senderId and message then
+        if message.type == "return_home" then
+            print("*** RETURN HOME command received! ***")
+            
+            -- Send acknowledgment
+            rednet.send(COMPUTER_ID, {
+                type = "status_update",
+                status = "returning home",
+                position = getPos()
+            }, PROTOCOL)
+            
+            print("Returning to base...")
+            moveTo(homePos.x, homePos.y, homePos.z)
+            depositToChest()
+            
+            -- Send arrived status
+            rednet.send(COMPUTER_ID, {
+                type = "status_update", 
+                status = "at home",
+                position = homePos
+            }, PROTOCOL)
+            
+            print("At home. Press Ctrl+T to stop or waiting for next command...")
+            sleep(5)
+        end
+    end
+    
     -- Check inventory
     if inventoryAlmostFull() then
         print("Inventory full - returning home")
