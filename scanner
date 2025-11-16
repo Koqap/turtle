@@ -296,6 +296,29 @@ local oreFilterEnabled = {
 }
 
 ----------------------------------
+-- TURTLE TRACKING
+----------------------------------
+local turtles = {}  -- Track connected turtles
+
+local function updateTurtle(id, data)
+    if not turtles[id] then
+        turtles[id] = {
+            id = id,
+            lastSeen = os.epoch("utc"),
+            position = {x=0, y=0, z=0},
+            status = "connected",
+            oresMined = 0,
+            currentTarget = nil,
+        }
+    end
+    
+    for k, v in pairs(data) do
+        turtles[id][k] = v
+    end
+    turtles[id].lastSeen = os.epoch("utc")
+end
+
+----------------------------------
 -- MESSAGE PROTOCOL HANDLERS
 ----------------------------------
 local function handleRequest(id, msg)
@@ -306,6 +329,7 @@ local function handleRequest(id, msg)
     if msg.type == "ping" then
         -- Simple ping response for connection testing
         print(string.format("[PING] Turtle %d connected", id))
+        updateTurtle(id, {status = "connected"})
         rednet.send(id, {type = "pong"}, PROTOCOL)
         
     elseif msg.type == "request_scan" then
@@ -325,6 +349,12 @@ local function handleRequest(id, msg)
         local cx, cy, cz = msg.x, msg.y, msg.z
         local oreFilter = msg.oreFilter  -- Get ore filter from turtle
         print(string.format("  Turtle at: %d,%d,%d", cx, cy, cz))
+        
+        -- Update turtle tracking
+        updateTurtle(id, {
+            position = {x=cx, y=cy, z=cz},
+            status = "requesting path"
+        })
         
         -- Helper function to check if ore matches filter
         local function matchesFilter(oreName)
@@ -387,6 +417,12 @@ local function handleRequest(id, msg)
         mapData.ores[bestIdx].claimed = true
         saveMap()
         
+        -- Update turtle tracking
+        updateTurtle(id, {
+            status = "mining",
+            currentTarget = target
+        })
+        
         print(string.format("  Sent target to turtle %d", id))
         
         rednet.send(id, { 
@@ -399,6 +435,13 @@ local function handleRequest(id, msg)
         print(string.format("[%s] Ore mined report from turtle %d", os.time(), id))
         local ox, oy, oz = msg.x, msg.y, msg.z
         mapData.visited[keyFrom(ox, oy, oz)] = true
+        
+        -- Update turtle tracking
+        if turtles[id] then
+            turtles[id].oresMined = (turtles[id].oresMined or 0) + 1
+            turtles[id].status = "ore mined"
+            turtles[id].currentTarget = nil
+        end
         
         -- remove ore from list
         for i, o in ipairs(mapData.ores) do
@@ -473,9 +516,17 @@ if BASALT then
         -- Create ore list label
         local oreListLabel = main:addLabel()
             :setText("Loading...")
-            :setPosition(1, 4)
-            :setSize(w, 20)
+            :setPosition(1, 6)
+            :setSize(w, 14)
             :setBackground(colors.black)
+            :setForeground(colors.white)
+        
+        -- Create turtle status label
+        local turtleStatusLabel = main:addLabel()
+            :setText("No turtles connected")
+            :setPosition(1, 21)
+            :setSize(w, 4)
+            :setBackground(colors.gray)
             :setForeground(colors.white)
         
         -- Create log label
@@ -532,6 +583,38 @@ if BASALT then
             end
             
             oreListLabel:setText(table.concat(oreText, "\n"))
+            
+            -- Update turtle status
+            local turtleText = {}
+            local turtleCount = 0
+            for _, t in pairs(turtles) do
+                turtleCount = turtleCount + 1
+            end
+            
+            if turtleCount == 0 then
+                table.insert(turtleText, "No turtles connected")
+            else
+                table.insert(turtleText, string.format("ACTIVE TURTLES: %d", turtleCount))
+                table.insert(turtleText, string.rep("-", 50))
+                
+                for id, t in pairs(turtles) do
+                    local pos = string.format("Pos: %d,%d,%d", t.position.x, t.position.y, t.position.z)
+                    local mined = string.format("Mined: %d", t.oresMined)
+                    local target = "Idle"
+                    if t.currentTarget then
+                        target = string.format("Target: %s at %d,%d,%d", 
+                            t.currentTarget.name:match("(%w+)_ore") or "ore",
+                            t.currentTarget.x, t.currentTarget.y, t.currentTarget.z)
+                    end
+                    
+                    table.insert(turtleText, string.format(
+                        "Turtle #%d | %s | %s | %s | %s", 
+                        id, t.status, pos, mined, target
+                    ))
+                end
+            end
+            
+            turtleStatusLabel:setText(table.concat(turtleText, "\n"))
         end
         
         -- Create scan button
