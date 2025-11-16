@@ -392,131 +392,85 @@ if BASALT then
     else
         -- Get main frame (Basalt v2 API)
         local main = basalt.getMainFrame()
+        main:setBackground(colors.black)
         
         local mapW, mapH = 45, 18
         
-        -- Title
-        local title = main:addLabel()
-        title:setPosition(1, 1)
-        title:setSize(mapW + 25, 1)
-        title:setText("SMARTMINER COMPUTER BRAIN")
-        title:setBackground(colors.blue)
-        title:setForeground(colors.white)
-        
-        -- Map display (left side)
-        local mapBox = main:addLabel()
-        mapBox:setPosition(1, 2)
-        mapBox:setSize(mapW, mapH)
-        mapBox:setBackground(colors.black)
-        mapBox:setForeground(colors.white)
-        
-        -- Info panel (right side)
-        local infoBox = main:addLabel()
-        infoBox:setPosition(mapW + 2, 2)
-        infoBox:setSize(23, mapH)
-        infoBox:setBackground(colors.gray)
-        infoBox:setForeground(colors.white)
-        
-        -- Status bar
-        local statusBar = main:addLabel()
-        statusBar:setPosition(1, mapH + 2)
-        statusBar:setSize(mapW + 25, 1)
-        statusBar:setBackground(colors.black)
-        statusBar:setForeground(colors.yellow)
-        
-        -- Log area
-        local logBox = main:addLabel()
-        logBox:setPosition(1, mapH + 3)
-        logBox:setSize(mapW + 25, 7)
-        logBox:setBackground(colors.black)
-        logBox:setForeground(colors.lightGray)
+        -- Create single label for all content
+        local display = main:addLabel()
+        display:setPosition(1, 1)
+        display:setSize(51, 30)
+        display:setBackground(colors.black)
+        display:setForeground(colors.white)
         
         local logBuffer = {}
-        local maxLogLines = 6
+        local maxLogLines = 3
         
         local function addLog(text)
             table.insert(logBuffer, text)
             if #logBuffer > maxLogLines then
                 table.remove(logBuffer, 1)
             end
-            logBox:setText(table.concat(logBuffer, "\n"))
         end
         
-        -- Render function
+        -- Render function - draw everything to terminal directly
         local function updateDisplay()
-            -- Map rendering
-            local cx, cy, cz = mapData.home.x, mapData.home.y, mapData.home.z
-            local rangeX = math.floor(mapW / 2)
-            local rangeZ = math.floor(mapH / 2)
-            local out = {}
+            term.redirect(main:getMonitor())
+            term.setBackgroundColor(colors.black)
+            term.clear()
             
-            for z = -rangeZ, rangeZ do
-                local row = ""
-                for x = -rangeX, rangeX do
-                    local wx = cx + x
-                    local wz = cz + z
-                    local k = keyFrom(wx, cy, wz)
-                    
-                    if x == 0 and z == 0 then
-                        row = row .. "H"
-                    elseif mapData.visited[k] then
-                        row = row .. "."
-                    else
-                        local hasOre = false
-                        for _, o in ipairs(mapData.ores) do
-                            if o.x == wx and o.z == wz then
-                                hasOre = true
-                                break
-                            end
-                        end
-                        if hasOre then
-                            row = row .. "*"
-                        elseif mapData.blocks[k] then
-                            row = row .. "#"
-                        else
-                            row = row .. " "
-                        end
-                    end
-                end
-                table.insert(out, row)
-            end
-            mapBox:setText(table.concat(out, "\n"))
+            -- Title
+            term.setCursorPos(1, 1)
+            term.setBackgroundColor(colors.blue)
+            term.setTextColor(colors.white)
+            term.clearLine()
+            term.write(" SMARTMINER COMPUTER BRAIN")
             
-            -- Info panel
-            local infoText = string.format(
-                "ORES: %d\n" ..
-                "VISITED: %d\n" ..
-                "%s\n" ..
-                "Recent Ores:\n",
-                #mapData.ores,
-                (function()
-                    local count = 0
-                    for _ in pairs(mapData.visited) do count = count + 1 end
-                    return count
-                end)(),
-                string.rep("-", 21)
-            )
+            -- Status line
+            term.setCursorPos(1, 2)
+            term.setBackgroundColor(colors.gray)
+            term.setTextColor(colors.yellow)
+            term.clearLine()
+            term.write(string.format(" ID:%d | Protocol:%s | Ores:%d | Press Q=Quit", 
+                COMPUTER_ID, PROTOCOL, #mapData.ores))
             
-            local maxOres = math.min(10, #mapData.ores)
-            for i = 1, maxOres do
+            -- Ore list
+            term.setBackgroundColor(colors.black)
+            term.setTextColor(colors.white)
+            term.setCursorPos(1, 4)
+            term.write("Tracked Ores: " .. #mapData.ores)
+            
+            local line = 5
+            local maxDisplay = 20
+            for i = 1, math.min(maxDisplay, #mapData.ores) do
                 local o = mapData.ores[i]
                 local oreName = o.name:match("(%w+)_ore") or "ore"
-                local status = o.claimed and "C" or " "
-                infoText = infoText .. string.format("[%s] %s\n  %d,%d,%d\n", 
-                    status, oreName, o.x, o.y, o.z)
+                local status = o.claimed and "[C]" or "[ ]"
+                term.setCursorPos(1, line)
+                term.write(string.format("%s %s at %d,%d,%d", 
+                    status, oreName, o.x, o.y, o.z))
+                line = line + 1
             end
             
-            if #mapData.ores > 10 then
-                infoText = infoText .. string.format("...+%d more", #mapData.ores - 10)
+            if #mapData.ores > maxDisplay then
+                term.setCursorPos(1, line)
+                term.write(string.format("...and %d more", #mapData.ores - maxDisplay))
+                line = line + 1
             end
             
-            infoBox:setText(infoText)
+            -- Log area
+            term.setCursorPos(1, 28)
+            term.setBackgroundColor(colors.gray)
+            term.setTextColor(colors.lightGray)
+            term.clearLine()
+            term.write(" Activity Log:")
+            term.setBackgroundColor(colors.black)
+            for i, log in ipairs(logBuffer) do
+                term.setCursorPos(1, 28 + i)
+                term.write(" " .. log)
+            end
             
-            -- Status bar
-            statusBar:setText(string.format(
-                "ID:%d | Protocol:%s | Ores:%d | Press Q to quit",
-                COMPUTER_ID, PROTOCOL, #mapData.ores
-            ))
+            term.setBackgroundColor(colors.black)
         end
         
         -- Initial update
