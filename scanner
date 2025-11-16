@@ -1,15 +1,13 @@
 -- SmartMiner Computer Brain (Advanced Computer + Geo Scanner + Basalt GUI)
--- Features: A* pathfinding, map persistence, real-time GUI, request-response protocol
+-- Features: A* pathfinding, disk drive persistence, real-time GUI, request-response protocol
 
 ----------------------------------
 -- CONFIGURATION
 ----------------------------------
 local scannerSide = "right"          -- side where geo scanner is attached
 local modemSide = "left"             -- side where wireless modem is attached
-local memorySide = "back"            -- side with memory card
 local BASALT = true                  -- set true if Basalt installed
 local SCAN_RADIUS = 8                -- scanner radius
-local MAP_SAVE_KEY = "minerMap"
 local AUTO_SAVE_INTERVAL = 30        -- seconds
 local PROTOCOL = "smartminer"        -- rednet protocol
 
@@ -22,7 +20,9 @@ local TURTLE_TIMEOUT = 5
 ----------------------------------
 local scanner = peripheral.wrap(scannerSide)
 local modem = peripheral.wrap(modemSide)
-local mem = peripheral.wrap(memorySide)
+
+-- Disk drive storage instead of memory card
+local drive = peripheral.find("drive")
 
 if not scanner then
     print("WARNING: Geo scanner not found on " .. scannerSide)
@@ -52,27 +52,42 @@ local function keyFrom(x,y,z)
     return x..","..y..","..z 
 end
 
+local function getDiskPath()
+    if drive and drive.isDiskPresent() then 
+        return drive.getMountPath() 
+    end
+    return nil
+end
+
 local function saveMap()
-    if mem and mem.write then
-        local ok, err = pcall(function() 
-            mem.write(MAP_SAVE_KEY, textutils.serialize(mapData)) 
-        end)
-        if not ok then
-            print("Save error:", err)
-        end
+    local path = getDiskPath()
+    if not path then 
+        print("No disk present for saving")
+        return 
+    end
+    local f = fs.open(path.."/minerMap.txt", "w")
+    if f then 
+        f.write(textutils.serialize(mapData))
+        f.close()
+        print("Map saved to disk")
     end
 end
 
 local function loadMap()
-    if mem and mem.read and mem.list then
-        local list = mem.list()
-        if list and list[MAP_SAVE_KEY] then
-            local ok, dat = pcall(function() 
-                return textutils.unserialize(mem.read(MAP_SAVE_KEY)) 
-            end)
-            if ok and type(dat)=="table" then 
+    local path = getDiskPath()
+    if not path then 
+        print("No disk present for loading")
+        return 
+    end
+    if fs.exists(path.."/minerMap.txt") then
+        local f = fs.open(path.."/minerMap.txt", "r")
+        if f then 
+            local data = f.readAll()
+            f.close()
+            local ok, dat = pcall(function() return textutils.unserialize(data) end)
+            if ok and type(dat) == "table" then 
                 mapData = dat 
-                print("Map loaded from memory card")
+                print("Map loaded from disk")
             end
         end
     end
@@ -99,22 +114,23 @@ end
 
 -- Ore definitions (supports both normal and deepslate)
 local ORE_NAMES = {
-    "minecraft:iron_ore", "minecraft:deepslate_iron_ore",
-    "minecraft:coal_ore", "minecraft:deepslate_coal_ore",
-    "minecraft:gold_ore", "minecraft:deepslate_gold_ore",
-    "minecraft:diamond_ore", "minecraft:deepslate_diamond_ore",
-    "minecraft:emerald_ore", "minecraft:deepslate_emerald_ore",
-    "minecraft:redstone_ore", "minecraft:deepslate_redstone_ore",
-    "minecraft:lapis_ore", "minecraft:deepslate_lapis_ore",
-    "minecraft:copper_ore", "minecraft:deepslate_copper_ore",
+    ["minecraft:iron_ore"] = true,
+    ["minecraft:deepslate_iron_ore"] = true,
+    ["minecraft:coal_ore"] = true,
+    ["minecraft:deepslate_coal_ore"] = true,
+    ["minecraft:gold_ore"] = true,
+    ["minecraft:deepslate_gold_ore"] = true,
+    ["minecraft:diamond_ore"] = true,
+    ["minecraft:deepslate_diamond_ore"] = true,
+    ["minecraft:emerald_ore"] = true,
+    ["minecraft:deepslate_emerald_ore"] = true,
+    ["minecraft:redstone_ore"] = true,
+    ["minecraft:deepslate_redstone_ore"] = true,
+    ["minecraft:lapis_ore"] = true,
+    ["minecraft:deepslate_lapis_ore"] = true,
+    ["minecraft:copper_ore"] = true,
+    ["minecraft:deepslate_copper_ore"] = true,
 }
-
-local function isOre(blockName)
-    for _, ore in ipairs(ORE_NAMES) do
-        if blockName == ore then return true end
-    end
-    return false
-end
 
 local function addOresFromScan(scanList, scanX, scanY, scanZ)
     scanX = scanX or 0
@@ -129,22 +145,22 @@ local function addOresFromScan(scanList, scanX, scanY, scanZ)
         mapData.blocks[keyFrom(absX, absY, absZ)] = b.name
         
         -- Add ores
-        if isOre(b.name) then
+        if ORE_NAMES[b.name] then
             local k = keyFrom(absX, absY, absZ)
             local exists = false
-            for _,o in ipairs(mapData.ores) do 
-                if o.x==absX and o.y==absY and o.z==absZ then 
-                    exists=true
+            for _, o in ipairs(mapData.ores) do 
+                if o.x == absX and o.y == absY and o.z == absZ then 
+                    exists = true
                     break 
                 end 
             end
             if not exists then
                 table.insert(mapData.ores, {
-                    x=absX, 
-                    y=absY, 
-                    z=absZ, 
-                    name=b.name, 
-                    claimed=false
+                    x = absX, 
+                    y = absY, 
+                    z = absZ, 
+                    name = b.name, 
+                    claimed = false
                 })
             end
         end
@@ -156,7 +172,7 @@ end
 -- A* PATHFINDER (3D)
 ----------------------------------
 local function neighbors(node)
-    local x,y,z = node.x, node.y, node.z
+    local x, y, z = node.x, node.y, node.z
     return {
         {x=x+1, y=y, z=z, dir="east"},
         {x=x-1, y=y, z=z, dir="west"},
@@ -167,18 +183,18 @@ local function neighbors(node)
     }
 end
 
-local function isBlocked(x,y,z)
-    local name = mapData.blocks[keyFrom(x,y,z)]
+local function isBlocked(x, y, z)
+    local name = mapData.blocks[keyFrom(x, y, z)]
     if not name then return false end
     -- treat known liquids/bedrock as blocked
-    if name:find("lava") or name:find("water") or name=="minecraft:bedrock" then 
+    if name:find("lava") or name:find("water") or name == "minecraft:bedrock" then 
         return true 
     end
     return false
 end
 
-local function heuristic(a,b)
-    return math.abs(a.x-b.x) + math.abs(a.y-b.y) + math.abs(a.z-b.z)
+local function heuristic(a, b)
+    return math.abs(a.x - b.x) + math.abs(a.y - b.y) + math.abs(a.z - b.z)
 end
 
 local function computePath(start, goal)
@@ -221,7 +237,7 @@ local function computePath(start, goal)
         iterations = iterations + 1
         local current = popLowest()
         
-        if current.x==goal.x and current.y==goal.y and current.z==goal.z then
+        if current.x == goal.x and current.y == goal.y and current.z == goal.z then
             -- reconstruct path
             local path = {}
             local curKey = keyFrom(current.x, current.y, current.z)
@@ -265,7 +281,7 @@ local function handleRequest(id, msg)
     end
 
     if msg.type == "request_scan" then
-        print(string.format("[%d] Scan request from turtle %d", os.time(), id))
+        print(string.format("[%s] Scan request from turtle %d", os.time(), id))
         local scanX, scanY, scanZ = msg.x or 0, msg.y or 0, msg.z or 0
         local scan = doScan(SCAN_RADIUS)
         addOresFromScan(scan, scanX, scanY, scanZ)
@@ -277,7 +293,7 @@ local function handleRequest(id, msg)
         print(string.format("  Sent %d ores to turtle", #mapData.ores))
 
     elseif msg.type == "request_path" then
-        print(string.format("[%d] Path request from turtle %d", os.time(), id))
+        print(string.format("[%s] Path request from turtle %d", os.time(), id))
         local cx, cy, cz = msg.x, msg.y, msg.z
         print(string.format("  Turtle at: %d,%d,%d", cx, cy, cz))
         
@@ -336,13 +352,13 @@ local function handleRequest(id, msg)
         }, PROTOCOL)
 
     elseif msg.type == "ore_mined" then
-        print(string.format("[%d] Ore mined report from turtle %d", os.time(), id))
+        print(string.format("[%s] Ore mined report from turtle %d", os.time(), id))
         local ox, oy, oz = msg.x, msg.y, msg.z
         mapData.visited[keyFrom(ox, oy, oz)] = true
         
         -- remove ore from list
         for i, o in ipairs(mapData.ores) do
-            if o.x==ox and o.y==oy and o.z==oz then 
+            if o.x == ox and o.y == oy and o.z == oz then 
                 print(string.format("  Removed ore: %s at %d,%d,%d", o.name, ox, oy, oz))
                 table.remove(mapData.ores, i)
                 break 
@@ -359,7 +375,7 @@ local function handleRequest(id, msg)
 end
 
 ----------------------------------
--- BASALT GUI (OPTIONAL)
+-- BASALT GUI
 ----------------------------------
 if BASALT then
     print("Initializing Basalt GUI...")
@@ -369,89 +385,107 @@ if BASALT then
         print("Basalt not available, using text mode")
         BASALT = false
     else
-        -- Try to create a simple GUI, fall back to text mode if it fails
-        local guiOk = pcall(function()
-            local main = basalt.createFrame()
+        local screen = basalt.createFrame()
+        local mapW, mapH = 48, 24
+        
+        local mapWindow = screen:addLabel()
+        mapWindow:setPosition(1, 1)
+        mapWindow:setSize(mapW, mapH)
+        mapWindow:setBackground(colors.black)
+        mapWindow:setForeground(colors.white)
+
+        local panel = screen:addLabel()
+        panel:setPosition(mapW + 2, 1)
+        panel:setSize(20, mapH)
+        panel:setBackground(colors.gray)
+        panel:setForeground(colors.white)
+
+        local status = screen:addLabel()
+        status:setPosition(1, mapH + 1)
+        status:setSize(mapW + 21, 3)
+        status:setBackground(colors.black)
+        status:setForeground(colors.yellow)
+
+        local function render()
+            -- clear map
+            mapWindow:setText("")
+            -- draw scanned blocks within mapW x mapH window centered around home
+            local cx, cy, cz = mapData.home.x, mapData.home.y, mapData.home.z
+            local rangeX = math.floor(mapW / 2)
+            local rangeZ = math.floor(mapH / 2)
+            local out = {}
             
-            -- Simple text display areas
-            local infoBox = main:addLabel()
-            infoBox:setPosition(1, 1)
-            infoBox:setSize(50, 1)
-            infoBox:setBackground(colors.black)
-            infoBox:setForeground(colors.yellow)
-            
-            local oreListBox = main:addLabel()
-            oreListBox:setPosition(1, 3)
-            oreListBox:setSize(50, 15)
-            oreListBox:setBackground(colors.black)
-            oreListBox:setForeground(colors.white)
-            
-            local function updateDisplay()
-                -- Info line
-                infoBox:setText(string.format(
-                    "SmartMiner | Ores: %d | Computer ID: %d", 
-                    #mapData.ores, COMPUTER_ID
-                ))
-                
-                -- Ore list
-                local text = "Recent Ores:\n"
-                local maxOres = math.min(12, #mapData.ores)
-                for i = 1, maxOres do
-                    local o = mapData.ores[i]
-                    local oreName = o.name:match("(%w+)_ore") or "ore"
-                    local stat = o.claimed and "[C]" or "[ ]"
-                    text = text .. string.format("%s %s at %d,%d,%d\n", 
-                        stat, oreName, o.x, o.y, o.z)
+            for z = -rangeZ, rangeZ do
+                local row = ""
+                for x = -rangeX, rangeX do
+                    local wx = cx + x
+                    local wz = cz + z
+                    local k = keyFrom(wx, cy, wz)
+                    
+                    if x == 0 and z == 0 then
+                        row = row .. "H"  -- Home
+                    elseif mapData.visited[k] then 
+                        row = row .. "."  -- visited
+                    elseif mapData.blocks[k] and mapData.blocks[k]:find("ore") then 
+                        row = row .. "*"  -- ore
+                    elseif mapData.blocks[k] then 
+                        row = row .. "#"  -- block
+                    else 
+                        row = row .. " "  -- unknown
+                    end
                 end
-                if #mapData.ores > 12 then
-                    text = text .. string.format("...and %d more", #mapData.ores - 12)
-                end
-                oreListBox:setText(text)
+                table.insert(out, row)
+            end
+            mapWindow:setText(table.concat(out, "\n"))
+
+            -- Panel: show ore list
+            local panelText = "Ores:\n"
+            for i, o in ipairs(mapData.ores) do
+                local oreName = o.name:match("(%w+)_ore") or "ore"
+                panelText = panelText .. string.format("%d) %s (%d,%d,%d)\n", 
+                    i, oreName, o.x, o.y, o.z)
+            end
+            panel:setText(panelText)
+
+            -- Status
+            local s = string.format("Computer: %d | Protocol: %s | Ores: %d", 
+                COMPUTER_ID, PROTOCOL, #mapData.ores)
+            status:setText(s)
+        end
+
+        -- simple loop
+        screen:setBackground(colors.black)
+        screen:show()
+        
+        print("Basalt GUI started. Press Q to quit.")
+        local lastSave = os.clock()
+        
+        while true do
+            render()
+            
+            -- Auto-save check
+            if os.clock() - lastSave >= AUTO_SAVE_INTERVAL then 
+                saveMap()
+                lastSave = os.clock()
             end
             
-            -- Update timer
-            local timer = main:addTimer()
-            timer:setTime(1)
-            timer:onCall(function()
-                updateDisplay()
-            end)
-            timer:start()
+            -- Handle events
+            local event = {os.pullEventRaw()}
             
-            -- Quit handler
-            main:onKey(function(_, key)
-                if key == keys.q then
-                    basalt.stop()
-                end
-            end)
+            if event[1] == "rednet_message" then
+                local senderId, message = event[2], event[3]
+                handleRequest(senderId, message)
+                
+            elseif event[1] == "key" and event[2] == keys.q then
+                saveMap()
+                break
+                
+            elseif event[1] == "terminate" then
+                saveMap()
+                break
+            end
             
-            print("Basalt GUI started. Press Q to quit.")
-            updateDisplay()
-            
-            -- Run Basalt alongside rednet handling
-            parallel.waitForAny(
-                function() basalt.autoUpdate() end,
-                function()
-                    while true do
-                        local senderId, message = rednet.receive(PROTOCOL)
-                        if senderId then
-                            handleRequest(senderId, message)
-                            updateDisplay()
-                        end
-                    end
-                end,
-                function()
-                    -- Auto-save
-                    while true do
-                        sleep(AUTO_SAVE_INTERVAL)
-                        saveMap()
-                    end
-                end
-            )
-        end)
-        
-        if not guiOk then
-            print("GUI initialization failed, using text mode")
-            BASALT = false
+            sleep(0.05)  -- small delay to prevent lag
         end
     end
 end
@@ -467,26 +501,24 @@ if not BASALT then
     print("Protocol:", PROTOCOL)
     print("Scanner:", scanner and "OK" or "NOT FOUND")
     print("Modem:", modem and "OK" or "NOT FOUND")
-    print("Memory:", mem and "OK" or "NOT FOUND")
+    print("Disk Drive:", drive and "OK" or "NOT FOUND")
     print("")
     print("Listening for turtle requests...")
     print("Press Ctrl+T to stop")
     
-    local lastSave = os.epoch("utc")
+    local lastSave = os.clock()
     
     while true do
         local senderId, message, protocol = rednet.receive(PROTOCOL, 1)
         if senderId then
-            print(string.format("[%d] Request from turtle %d", os.time(), senderId))
+            print(string.format("[%s] Request from turtle %d", os.time(), senderId))
             handleRequest(senderId, message)
         end
         
         -- Auto-save
-        local now = os.epoch("utc")
-        if now - lastSave >= AUTO_SAVE_INTERVAL * 1000 then
+        if os.clock() - lastSave >= AUTO_SAVE_INTERVAL then
             saveMap()
-            lastSave = now
-            print("Map auto-saved")
+            lastSave = os.clock()
         end
     end
 end
