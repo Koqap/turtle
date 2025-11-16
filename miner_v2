@@ -1,12 +1,11 @@
--- SmartMiner Turtle (Works with Computer Brain)
--- Features: Request-based protocol, GPS positioning, smart pathfinding
+-- SmartMiner Turtle V2 - A* Pathfinding Client
+-- Works with computer brain for coordinated mining
 
 ----------------------------------
 -- CONFIGURATION
 ----------------------------------
-local PROTOCOL = "smartminer"
-local COMPUTER_ID = 1               -- ID of the computer brain
-local modemSide = "right"
+local COMPUTER_ID = 1                -- ID of the computer brain
+local PROTOCOL = "smartminer"        -- Must match computer
 local TURTLE_ID = os.getComputerID and os.getComputerID() or 2
 
 ----------------------------------
@@ -24,34 +23,55 @@ local stats = {
 }
 
 ----------------------------------
--- WIRELESS MODEM SETUP
+-- MODEM AUTO-DETECTION
 ----------------------------------
-local function findModem()
+local function findAndOpenModem()
+    -- Try to find wireless modem on any side
     for _, side in ipairs({"right", "left", "top", "bottom", "front", "back"}) do
         if peripheral.getType(side) and peripheral.getType(side):find("modem") then
             local m = peripheral.wrap(side)
             if m.isWireless and m.isWireless() then
-                return side
+                rednet.open(side)
+                print("Modem found on:", side)
+                return true
             end
         end
     end
-    return nil
+    return false
 end
 
-local actualModemSide = findModem()
-if not actualModemSide then
-    error("ERROR: No wireless modem found on turtle!")
+if not findAndOpenModem() then
+    error("ERROR: No wireless modem found!")
 end
 
-rednet.open(actualModemSide)
-print("Wireless modem opened on:", actualModemSide)
+----------------------------------
+-- GPS AND POSITION TRACKING
+----------------------------------
+local gps = gps  -- Use built-in GPS
+local lastKnown = {x=0, y=0, z=0}
+local facing = 0  -- 0=north, 1=east, 2=south, 3=west
+
+local function getPos()
+    if gps then
+        local x, y, z = gps.locate(2)
+        if x then 
+            lastKnown = {x=math.floor(x), y=math.floor(y), z=math.floor(z)}
+            return lastKnown
+        end
+    end
+    -- Fallback to internal tracking
+    return lastKnown
+end
 
 ----------------------------------
 -- BASE STATION CHEST SETUP
 ----------------------------------
 print("═══════════════════════════════════")
-print("  CHEST SETUP  ")
+print("  SMARTMINER TURTLE V2")
 print("═══════════════════════════════════")
+print("Turtle ID:", TURTLE_ID)
+print("Computer ID:", COMPUTER_ID)
+print("")
 print("Place chest BEHIND turtle")
 print("(Turtle should face AWAY from chest)")
 print("")
@@ -60,12 +80,8 @@ read()
 
 -- Save home position
 print("Getting home position...")
-local homeX, homeY, homeZ = gps.locate(3)
-if not homeX then
-    error("ERROR: GPS signal required!")
-end
-homeX, homeY, homeZ = math.floor(homeX), math.floor(homeY), math.floor(homeZ)
-print(string.format("✓ Home position: %d, %d, %d", homeX, homeY, homeZ))
+local homePos = getPos()
+print(string.format("✓ Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
 
 -- Verify chest
 print("Verifying chest...")
@@ -84,22 +100,12 @@ turtle.turnLeft()
 turtle.turnLeft()
 
 ----------------------------------
--- GPS HELPERS
-----------------------------------
-local function gpsLoc()
-    local x, y, z = gps.locate(3)
-    if not x then 
-        error("GPS signal lost!") 
-    end
-    return math.floor(x), math.floor(y), math.floor(z)
-end
-
-----------------------------------
--- DIRECTION CONTROL
+-- DETECT FACING DIRECTION
 ----------------------------------
 local function detectFacing()
-    local x1, y1, z1 = gpsLoc()
+    local x1, y1, z1 = getPos().x, getPos().y, getPos().z
     
+    -- Try to move forward
     local moved = false
     for attempt = 1, 5 do
         if turtle.forward() then
@@ -112,57 +118,65 @@ local function detectFacing()
     end
     
     if not moved then
-        print("ERROR: Cannot move forward to detect facing!")
-        return nil
+        print("WARNING: Cannot detect facing (blocked)")
+        return 0  -- Default to north
     end
     
-    local x2, y2, z2 = gpsLoc()
+    local x2, y2, z2 = getPos().x, getPos().y, getPos().z
+    local dx, dz = x2 - x1, z2 - z1
     
-    local dx = x2 - x1
-    local dz = z2 - z1
+    turtle.back()  -- Return to start
     
-    local detectedFacing = nil
-    if dz == -1 then detectedFacing = 0      -- North
-    elseif dx == 1 then detectedFacing = 1   -- East
-    elseif dz == 1 then detectedFacing = 2   -- South
-    elseif dx == -1 then detectedFacing = 3  -- West
-    end
-    
-    turtle.back()
-    return detectedFacing
+    if dz == -1 then return 0 end     -- North
+    if dx == 1 then return 1 end      -- East
+    if dz == 1 then return 2 end      -- South
+    if dx == -1 then return 3 end     -- West
+    return 0  -- Default
 end
 
-print("Detecting facing direction...")
-local facing = detectFacing()
-if not facing then
-    error("ERROR: Could not detect facing direction!")
-end
-
-local dirNames = { [0]="north", [1]="east", [2]="south", [3]="west" }
-print(string.format("✓ Turtle facing: %s", dirNames[facing]))
+facing = detectFacing()
+local dirNames = {[0]="north", [1]="east", [2]="south", [3]="west"}
+print(string.format("✓ Facing: %s", dirNames[facing]))
 
 local homeFacing = facing
-print(string.format("✓ Home facing saved: %s", dirNames[homeFacing]))
 print("✓ Setup complete")
 print("═══════════════════════════════════")
 
 ----------------------------------
--- SMART MOVEMENT
+-- SMART MOVEMENT FUNCTIONS
 ----------------------------------
 local function tryForward()
     stats.totalMoves = stats.totalMoves + 1
     
     if turtle.forward() then
         stats.freeMoves = stats.freeMoves + 1
+        -- Update internal position if no GPS
+        if not gps then
+            if facing == 0 then lastKnown.z = lastKnown.z - 1
+            elseif facing == 1 then lastKnown.x = lastKnown.x + 1
+            elseif facing == 2 then lastKnown.z = lastKnown.z + 1
+            elseif facing == 3 then lastKnown.x = lastKnown.x - 1
+            end
+        end
         return true
     end
     
+    -- Blocked - dig and retry
     while not turtle.forward() do
         if turtle.dig() then
             stats.blocksMinedForward = stats.blocksMinedForward + 1
         end
         turtle.attack()
         sleep(0.1)
+    end
+    
+    -- Update position after successful move
+    if not gps then
+        if facing == 0 then lastKnown.z = lastKnown.z - 1
+        elseif facing == 1 then lastKnown.x = lastKnown.x + 1
+        elseif facing == 2 then lastKnown.z = lastKnown.z + 1
+        elseif facing == 3 then lastKnown.x = lastKnown.x - 1
+        end
     end
     return true
 end
@@ -172,6 +186,7 @@ local function tryUp()
     
     if turtle.up() then
         stats.freeMoves = stats.freeMoves + 1
+        if not gps then lastKnown.y = lastKnown.y + 1 end
         return true
     end
     
@@ -182,6 +197,8 @@ local function tryUp()
         turtle.attackUp()
         sleep(0.1)
     end
+    
+    if not gps then lastKnown.y = lastKnown.y + 1 end
     return true
 end
 
@@ -190,6 +207,7 @@ local function tryDown()
     
     if turtle.down() then
         stats.freeMoves = stats.freeMoves + 1
+        if not gps then lastKnown.y = lastKnown.y - 1 end
         return true
     end
     
@@ -200,74 +218,87 @@ local function tryDown()
         turtle.attackDown()
         sleep(0.1)
     end
+    
+    if not gps then lastKnown.y = lastKnown.y - 1 end
     return true
 end
 
-local dirs = { north=0, east=1, south=2, west=3 }
-
-local function turnTo(dir)
-    local target = dirs[dir]
-    while facing ~= target do
+----------------------------------
+-- DIRECTION CONTROL
+----------------------------------
+local function turnTo(targetDir)
+    while facing ~= targetDir do
         turtle.turnRight()
         facing = (facing + 1) % 4
     end
 end
 
 ----------------------------------
--- MOVING TO ABSOLUTE COORDINATE
+-- ABSOLUTE POSITION MOVEMENT
 ----------------------------------
-local function moveTo(tx, ty, tz)
-    local x, y, z = gpsLoc()
-    print(string.format("Moving: %d,%d,%d -> %d,%d,%d", x, y, z, tx, ty, tz))
-    
-    -- Vertical first
+local function moveAbs(targetX, targetY, targetZ)
+    local pos = getPos()
     local moveCount = 0
-    while y < ty do
+    local maxMoves = 500
+    
+    -- Move vertically first
+    while pos.y < targetY and moveCount < maxMoves do
         tryUp()
-        x, y, z = gpsLoc()
+        pos = getPos()
         moveCount = moveCount + 1
-        if moveCount > 500 then 
-            error("Stuck moving up!") 
-        end
     end
     
     moveCount = 0
-    while y > ty do
+    while pos.y > targetY and moveCount < maxMoves do
         tryDown()
-        x, y, z = gpsLoc()
+        pos = getPos()
         moveCount = moveCount + 1
-        if moveCount > 500 then 
-            error("Stuck moving down!") 
-        end
     end
     
-    -- X axis
-    if tx > x then turnTo("east") end
-    if tx < x then turnTo("west") end
+    -- Move on X axis
+    if pos.x < targetX then turnTo(1) end  -- East
+    if pos.x > targetX then turnTo(3) end  -- West
+    
     moveCount = 0
-    while x ~= tx do
+    while pos.x ~= targetX and moveCount < maxMoves do
         tryForward()
-        x, y, z = gpsLoc()
+        pos = getPos()
         moveCount = moveCount + 1
-        if moveCount > 500 then 
-            error("Stuck on X axis!") 
-        end
     end
     
-    -- Z axis
-    if tz > z then turnTo("south") end
-    if tz < z then turnTo("north") end
+    -- Move on Z axis
+    if pos.z < targetZ then turnTo(2) end  -- South
+    if pos.z > targetZ then turnTo(0) end  -- North
+    
     moveCount = 0
-    while z ~= tz do
+    while pos.z ~= targetZ and moveCount < maxMoves do
         tryForward()
-        x, y, z = gpsLoc()
+        pos = getPos()
         moveCount = moveCount + 1
-        if moveCount > 500 then 
-            error("Stuck on Z axis!") 
-        end
     end
     
-    print(string.format("✓ Arrived at %d,%d,%d", x, y, z))
+    return true
+end
+
+----------------------------------
+-- PATH EXECUTION
+----------------------------------
+local function executePathSteps(steps)
+    if not steps or #steps == 0 then
+        return false
+    end
+    
+    print(string.format("Executing path: %d steps", #steps))
+    
+    for i, step in ipairs(steps) do
+        if i % 10 == 0 then
+            print(string.format("  Step %d/%d", i, #steps))
+        end
+        moveAbs(step.x, step.y, step.z)
+    end
+    
+    print("✓ Path complete")
+    return true
 end
 
 ----------------------------------
@@ -297,21 +328,23 @@ local function invRefuel(amountNeeded)
     
     local gained = turtle.getFuelLevel() - startFuel
     if gained > 0 then
-        print(string.format("Refueled: +%d fuel (now %d)", gained, turtle.getFuelLevel()))
+        print(string.format("Refueled: +%d (now %d)", gained, turtle.getFuelLevel()))
     end
     return gained
 end
 
 local function smartRefuel()
     local current = turtle.getFuelLevel()
-    local x, y, z = gpsLoc()
+    local pos = getPos()
     
-    local homeTrip = math.abs(homeX - x) + math.abs(homeY - y) + math.abs(homeZ - z)
+    local homeTrip = math.abs(homePos.x - pos.x) + 
+                     math.abs(homePos.y - pos.y) + 
+                     math.abs(homePos.z - pos.z)
     local buffer = 500
     local needed = homeTrip + buffer
     
     if current < needed then
-        print(string.format("Low fuel! Current: %d, Need: %d", current, needed))
+        print(string.format("Low fuel: %d/%d", current, needed))
         invRefuel(needed - current + 200)
         return true
     end
@@ -319,7 +352,7 @@ local function smartRefuel()
 end
 
 ----------------------------------
--- ITEM MANAGEMENT
+-- INVENTORY MANAGEMENT
 ----------------------------------
 local KEEP_ITEMS = {
     "minecraft:coal", "minecraft:charcoal", "minecraft:coal_block",
@@ -335,13 +368,15 @@ local function isFuelItem(itemName)
 end
 
 local function depositToChest()
-    print("Depositing items to chest...")
+    print("Depositing to chest...")
     
+    -- Turn to face home direction
     while facing ~= homeFacing do
         turtle.turnRight()
         facing = (facing + 1) % 4
     end
     
+    -- Turn around to face chest
     turtle.turnLeft()
     turtle.turnLeft()
     facing = (facing + 2) % 4
@@ -357,13 +392,13 @@ local function depositToChest()
         end
     end
     
+    -- Turn back
     turtle.turnLeft()
     turtle.turnLeft()
     facing = (facing + 2) % 4
     
     smartRefuel()
-    
-    print(string.format("✓ Deposited %d stacks to chest", deposited))
+    print(string.format("✓ Deposited %d stacks", deposited))
     return deposited
 end
 
@@ -380,134 +415,92 @@ end
 ----------------------------------
 -- COMMUNICATION WITH COMPUTER
 ----------------------------------
-local function sendRequest(msgType, data)
-    data = data or {}
-    data.type = msgType
-    rednet.send(COMPUTER_ID, data, PROTOCOL)
-end
-
-local function waitForResponse(timeout)
-    timeout = timeout or 10
-    local senderId, message, protocol = rednet.receive(PROTOCOL, timeout)
-    if senderId == COMPUTER_ID and message then
-        return message
-    end
-    return nil
-end
-
-local function requestScan()
-    print("Requesting scan from computer...")
-    local x, y, z = gpsLoc()
-    sendRequest("request_scan", {x=x, y=y, z=z})
-    stats.scansRequested = stats.scansRequested + 1
-    
-    local response = waitForResponse(15)
-    if response and response.type == "scan_result" then
-        print(string.format("Scan complete: %d ores found", #response.ores))
-        return response.ores
-    end
-    print("No scan response received")
-    return nil
-end
-
 local function requestPath()
-    print("Requesting path from computer...")
-    local x, y, z = gpsLoc()
-    sendRequest("request_path", {x=x, y=y, z=z})
+    local pos = getPos()
+    print(string.format("Requesting path from %d,%d,%d", pos.x, pos.y, pos.z))
     
-    local response = waitForResponse(10)
-    if response and response.type == "path" then
+    rednet.send(COMPUTER_ID, {
+        type = "request_path",
+        x = pos.x,
+        y = pos.y,
+        z = pos.z
+    }, PROTOCOL)
+    
+    local id, msg = rednet.receive(PROTOCOL, 10)
+    if id and msg and msg.type == "path" then
         stats.pathsReceived = stats.pathsReceived + 1
-        if #response.steps > 0 then
-            print(string.format("Path received: %d steps to %s", 
-                #response.steps, response.target.name))
-            return response.steps, response.target
+        if msg.steps and #msg.steps > 0 then
+            print(string.format("✓ Path received: %d steps", #msg.steps))
+            return msg.steps, msg.target
         else
-            print("No path available (no ores)")
+            print("No ores available")
             return nil, nil
         end
     end
-    print("No path response received")
+    
+    print("No response from computer")
     return nil, nil
 end
 
-local function reportOreMined(target)
-    print(string.format("Reporting mined ore at %d,%d,%d", target.x, target.y, target.z))
-    sendRequest("ore_mined", {x=target.x, y=target.y, z=target.z})
+local function requestScan()
+    local pos = getPos()
+    print("Requesting scan...")
     
-    local response = waitForResponse(5)
-    if response and response.type == "ack" then
-        print(string.format("Computer acknowledged. %d ores remaining", response.remaining))
-        return true
-    end
-    return false
+    rednet.send(COMPUTER_ID, {
+        type = "request_scan",
+        x = pos.x,
+        y = pos.y,
+        z = pos.z
+    }, PROTOCOL)
+    
+    stats.scansRequested = stats.scansRequested + 1
 end
 
-----------------------------------
--- PATH EXECUTION
-----------------------------------
-local function executePathSteps(steps)
-    if not steps or #steps == 0 then 
-        return false 
-    end
+local function reportOreMined(target)
+    rednet.send(COMPUTER_ID, {
+        type = "ore_mined",
+        x = target.x,
+        y = target.y,
+        z = target.z
+    }, PROTOCOL)
     
-    print(string.format("Executing path with %d steps", #steps))
-    
-    for i, step in ipairs(steps) do
-        if i % 10 == 0 then
-            print(string.format("  Step %d/%d", i, #steps))
-        end
-        
-        moveTo(step.x, step.y, step.z)
-        
-        -- Check fuel periodically
-        if i % 20 == 0 then
-            smartRefuel()
-        end
-    end
-    
-    print("Path execution complete")
-    return true
+    print(string.format("✓ Reported ore mined at %d,%d,%d", target.x, target.y, target.z))
 end
 
 ----------------------------------
 -- MAIN MINING LOOP
 ----------------------------------
-print("═══════════════════════════════════")
-print("  SMARTMINER TURTLE STARTED")
-print("═══════════════════════════════════")
-print("Turtle ID:", TURTLE_ID)
-print("Computer ID:", COMPUTER_ID)
-print("Protocol:", PROTOCOL)
-print("Home:", homeX, homeY, homeZ)
+print("")
+print("Starting mining operations...")
+print("Press Ctrl+T to stop")
 print("")
 
 -- Initial scan request
 requestScan()
-
-print("Starting mining loop...")
-print("Press Ctrl+T to stop")
-print("")
+sleep(2)
 
 local miningCycle = 0
-local idleTime = 0
+local idleCount = 0
 
 while true do
     miningCycle = miningCycle + 1
-    print(string.format("=== Mining Cycle %d ===", miningCycle))
+    print(string.format("=== Cycle %d ===", miningCycle))
     
     -- Check inventory
     if inventoryAlmostFull() then
-        print("Inventory full, returning home...")
-        moveTo(homeX, homeY, homeZ)
+        print("Inventory full - returning home")
+        moveAbs(homePos.x, homePos.y, homePos.z)
         depositToChest()
     end
+    
+    -- Check fuel
+    smartRefuel()
     
     -- Request path to next ore
     local steps, target = requestPath()
     
     if steps and target then
-        idleTime = 0
+        idleCount = 0
         
         -- Execute path
         local success = executePathSteps(steps)
@@ -516,59 +509,53 @@ while true do
             -- Mine the ore
             print("Mining ore...")
             turtle.dig()
-            turtle.digUp()
             turtle.digDown()
+            turtle.digUp()
             stats.oresMined = stats.oresMined + 1
             
             -- Report to computer
             reportOreMined(target)
             
-            -- Brief pause
             sleep(0.5)
         end
     else
         -- No ores available
-        idleTime = idleTime + 1
-        print(string.format("No ores available (idle: %d)", idleTime))
+        idleCount = idleCount + 1
+        print(string.format("Idle (no ores) - count: %d", idleCount))
         
-        if idleTime >= 3 then
-            -- Request new scan after being idle
+        if idleCount >= 3 then
             print("Requesting new scan...")
             requestScan()
-            idleTime = 0
+            idleCount = 0
         end
         
         sleep(5)
     end
-    
-    -- Periodic refuel check
-    smartRefuel()
 end
 
 ----------------------------------
--- CLEANUP (if loop breaks)
+-- CLEANUP (unreachable but good practice)
 ----------------------------------
 print("")
-print("Returning to home...")
-moveTo(homeX, homeY, homeZ)
+print("Returning home...")
+moveAbs(homePos.x, homePos.y, homePos.z)
 depositToChest()
 
 print("")
 print("═══════════════════════════════════")
-print("  MINING STATISTICS")
+print("  MINING COMPLETE")
 print("═══════════════════════════════════")
 print(string.format("Ores mined: %d", stats.oresMined))
 print(string.format("Total moves: %d", stats.totalMoves))
 print(string.format("Free moves: %d (%.1f%%)", 
     stats.freeMoves, (stats.freeMoves / math.max(1, stats.totalMoves) * 100)))
 print("")
-print("Blocks mined for movement:")
+print(string.format("Blocks mined: %d", 
+    stats.blocksMinedForward + stats.blocksMinedUp + stats.blocksMinedDown))
 print(string.format("  Forward: %d", stats.blocksMinedForward))
 print(string.format("  Up: %d", stats.blocksMinedUp))
 print(string.format("  Down: %d", stats.blocksMinedDown))
-local totalBlocksMined = stats.blocksMinedForward + stats.blocksMinedUp + stats.blocksMinedDown
-print(string.format("  Total: %d", totalBlocksMined))
 print("")
-print(string.format("Scans requested: %d", stats.scansRequested))
 print(string.format("Paths received: %d", stats.pathsReceived))
+print(string.format("Scans requested: %d", stats.scansRequested))
 print("═══════════════════════════════════")
