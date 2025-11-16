@@ -303,7 +303,12 @@ local function handleRequest(id, msg)
         return 
     end
 
-    if msg.type == "request_scan" then
+    if msg.type == "ping" then
+        -- Simple ping response for connection testing
+        print(string.format("[PING] Turtle %d connected", id))
+        rednet.send(id, {type = "pong"}, PROTOCOL)
+        
+    elseif msg.type == "request_scan" then
         print(string.format("[%s] Scan request from turtle %d", os.time(), id))
         local scanX, scanY, scanZ = msg.x or 0, msg.y or 0, msg.z or 0
         local scan = doScan(SCAN_RADIUS)

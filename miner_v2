@@ -488,8 +488,26 @@ print("")
 print("Starting mining operations...")
 print("Press Ctrl+T to stop")
 print("")
+print("Testing connection to computer...")
+
+-- Test connection first
+rednet.send(COMPUTER_ID, {type = "ping"}, PROTOCOL)
+local testId, testMsg = rednet.receive(PROTOCOL, 3)
+if testId then
+    print("✓ Connected to computer ID:", COMPUTER_ID)
+else
+    print("✗ Cannot reach computer ID:", COMPUTER_ID)
+    print("Make sure:")
+    print("  1. Scanner is running")
+    print("  2. Both have wireless modems")
+    print("  3. COMPUTER_ID is correct")
+    print("")
+    print("Press ENTER to continue anyway...")
+    read()
+end
 
 -- Initial scan request
+print("Requesting initial scan...")
 requestScan()
 sleep(2)
 
