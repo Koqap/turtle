@@ -637,18 +637,18 @@ if BASALT then
             :setBackground(colors.gray)
             :setForeground(colors.yellow)
         
-        -- Create ore list label (smaller)
+        -- Create ore list label
         local oreListLabel = main:addLabel()
             :setText("Loading...")
-            :setPosition(1, 6)
-            :setSize(w, 7)
+            :setPosition(1, 8)
+            :setSize(w, 6)
             :setBackground(colors.black)
             :setForeground(colors.white)
         
-        -- Create turtle status label (more visible)
+        -- Create turtle status label
         local turtleStatusLabel = main:addLabel()
             :setText("No turtles connected")
-            :setPosition(1, 14)
+            :setPosition(1, 15)
             :setSize(w, 6)
             :setBackground(colors.gray)
             :setForeground(colors.white)
@@ -656,8 +656,8 @@ if BASALT then
         -- Create log label
         local logLabel = main:addLabel()
             :setText("Activity Log:")
-            :setPosition(1, 21)
-            :setSize(w, h - 20)
+            :setPosition(1, 22)
+            :setSize(w, h - 21)
             :setBackground(colors.black)
             :setForeground(colors.lightGray)
         
@@ -828,38 +828,38 @@ if BASALT then
         -- Create start/stop button
         local startStopButton = main:addButton()
             :setText("START")
-            :setPosition(2, 3)
-            :setSize(10, 1)
+            :setPosition(2, 2)
+            :setSize(9, 1)
             :setBackground(colors.green)
             :setForeground(colors.white)
         
         -- Create scan button
         local scanButton = main:addButton()
             :setText("SCAN")
-            :setPosition(13, 3)
-            :setSize(7, 1)
+            :setPosition(12, 2)
+            :setSize(8, 1)
             :setBackground(colors.blue)
             :setForeground(colors.white)
         
         -- Create return home button
         local returnButton = main:addButton()
             :setText("RETURN")
-            :setPosition(21, 3)
-            :setSize(8, 1)
+            :setPosition(21, 2)
+            :setSize(9, 1)
             :setBackground(colors.orange)
             :setForeground(colors.white)
         
         -- Create ore filter label
         local filterLabel = main:addLabel()
             :setText("ORE FILTERS:")
-            :setPosition(20, 2)
-            :setSize(40, 1)
+            :setPosition(2, 4)
+            :setSize(28, 1)
             :setBackground(colors.black)
             :setForeground(colors.orange)
         
-        -- Create ore filter buttons
-        local btnY = 3
-        local btnX = 20
+        -- Create ore filter buttons (2 rows of 4)
+        local btnY = 5
+        local btnX = 2
         local oreButtons = {}
         
         local oreTypes = {"iron", "coal", "gold", "diamond", "copper", "redstone", "lapis", "emerald"}
@@ -867,8 +867,8 @@ if BASALT then
         for i, oreType in ipairs(oreTypes) do
             local btn = main:addButton()
                 :setText(string.upper(oreType:sub(1,4)))
-                :setPosition(btnX + ((i-1) % 4) * 8, btnY + math.floor((i-1) / 4))
-                :setSize(7, 1)
+                :setPosition(btnX + ((i-1) % 4) * 7, btnY + math.floor((i-1) / 4))
+                :setSize(6, 1)
             
             -- Set initial color
             if oreFilterEnabled[oreType] then
