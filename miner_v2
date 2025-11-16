@@ -8,6 +8,19 @@ local COMPUTER_ID = 1                -- ID of the computer brain
 local PROTOCOL = "smartminer"        -- Must match computer
 local TURTLE_ID = os.getComputerID and os.getComputerID() or 2
 
+-- ORE FILTER: Which ores to mine (set to nil to mine ALL ores)
+local ORE_FILTER = {
+    "iron",      -- Mine iron ore
+    "coal",      -- Mine coal ore
+    "gold",      -- Mine gold ore
+    "diamond",   -- Mine diamond ore
+    -- "copper",    -- Uncomment to mine copper
+    -- "redstone",  -- Uncomment to mine redstone
+    -- "lapis",     -- Uncomment to mine lapis
+    -- "emerald",   -- Uncomment to mine emerald
+}
+-- Set to nil to mine ALL ore types: local ORE_FILTER = nil
+
 ----------------------------------
 -- MOVEMENT STATISTICS
 ----------------------------------
@@ -423,7 +436,8 @@ local function requestPath()
         type = "request_path",
         x = pos.x,
         y = pos.y,
-        z = pos.z
+        z = pos.z,
+        oreFilter = ORE_FILTER  -- Send ore filter to computer
     }, PROTOCOL)
     
     local id, msg = rednet.receive(PROTOCOL, 10)

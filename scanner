@@ -304,19 +304,34 @@ local function handleRequest(id, msg)
     elseif msg.type == "request_path" then
         print(string.format("[%s] Path request from turtle %d", os.time(), id))
         local cx, cy, cz = msg.x, msg.y, msg.z
+        local oreFilter = msg.oreFilter  -- Get ore filter from turtle
         print(string.format("  Turtle at: %d,%d,%d", cx, cy, cz))
         
-        -- choose nearest unclaimed ore
+        -- Helper function to check if ore matches filter
+        local function matchesFilter(oreName)
+            if not oreFilter then return true end  -- No filter = mine all
+            for _, filterType in ipairs(oreFilter) do
+                if oreName:find(filterType) then
+                    return true
+                end
+            end
+            return false
+        end
+        
+        -- choose nearest unclaimed ore that matches filter
         local bestIdx, bestDist = nil, math.huge
         for i, o in ipairs(mapData.ores) do
             if not o.claimed and not mapData.visited[keyFrom(o.x, o.y, o.z)] then
-                local dx = o.x - cx
-                local dy = o.y - cy
-                local dz = o.z - cz
-                local dist = math.abs(dx) + math.abs(dy) + math.abs(dz)
-                if dist < bestDist then 
-                    bestDist = dist
-                    bestIdx = i 
+                -- Check if ore matches filter
+                if matchesFilter(o.name) then
+                    local dx = o.x - cx
+                    local dy = o.y - cy
+                    local dz = o.z - cz
+                    local dist = math.abs(dx) + math.abs(dy) + math.abs(dz)
+                    if dist < bestDist then 
+                        bestDist = dist
+                        bestIdx = i 
+                    end
                 end
             end
         end
