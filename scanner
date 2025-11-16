@@ -23,6 +23,9 @@ local systemRunning = false  -- Manual start/stop control
 local scanner = peripheral.wrap("geo_scanner_1")  -- Use peripheral name
 local modem = peripheral.wrap(modemSide)
 
+-- Environment Detector (Advanced Peripherals) - Optional
+local envDetector = peripheral.find("environmentDetector")
+
 -- Disk drive storage - DISABLED (causes disk full errors)
 local drive = nil  -- Disabled to avoid disk space issues
 
@@ -35,8 +38,22 @@ else
     monitor = peripheral.find("monitor")
 end
 
-if not scanner then
-    print("WARNING: Geo scanner not found on geo_scanner_1")
+-- Scanner status
+if scanner then
+    print("✓ Geo Scanner: Found (geo_scanner_1)")
+else
+    print("⚠ Geo Scanner: Not found (geo_scanner_1)")
+end
+
+-- Environment Detector status
+if envDetector then
+    print("✓ Environment Detector: Found (" .. peripheral.getName(envDetector) .. ")")
+    local ok, maxRadius = pcall(function() return envDetector.getOperationRadius() end)
+    if ok and maxRadius then
+        print("  Max scan radius: " .. maxRadius)
+    end
+else
+    print("⚠ Environment Detector: Not found (optional)")
 end
 
 -- Monitor status
@@ -139,6 +156,71 @@ local function doScan(radius)
         return {} 
     end
     return res
+end
+
+-- Environment Detector scanning (Alternative/Complementary)
+local function doScanWithEnvDetector(radius)
+    if not envDetector then 
+        print("No Environment Detector available!")
+        return {} 
+    end
+    
+    print(string.format("Scanning with Environment Detector (radius: %d)...", radius))
+    local ok, blocks = pcall(function() return envDetector.scan(radius) end)
+    
+    if not ok or not blocks then 
+        print("Environment Detector scan failed:", blocks)
+        return {} 
+    end
+    
+    print(string.format("  Environment Detector scanned %d blocks", #blocks))
+    
+    -- Convert Environment Detector format to geo scanner format
+    -- EnvDetector returns: {x, y, z, name, tags}
+    -- GeoScanner expects: {x, y, z, name, state}
+    local converted = {}
+    for _, block in ipairs(blocks) do
+        if block.name then
+            table.insert(converted, {
+                x = block.x or 0,
+                y = block.y or 0,
+                z = block.z or 0,
+                name = block.name,
+                state = block.state or {},
+                tags = block.tags or {}
+            })
+        end
+    end
+    
+    return converted
+end
+
+-- Hybrid scan: Use both scanners if available
+local function doHybridScan(radius)
+    local results = {}
+    local geoResults = {}
+    local envResults = {}
+    
+    -- Try geo scanner first
+    if scanner then
+        geoResults = doScan(radius)
+        print(string.format("  Geo scanner: %d blocks", #geoResults))
+    end
+    
+    -- Try environment detector
+    if envDetector then
+        envResults = doScanWithEnvDetector(radius)
+        print(string.format("  Env detector: %d blocks", #envResults))
+    end
+    
+    -- Use whichever got more results (or combine them)
+    if #geoResults > 0 then
+        results = geoResults
+    elseif #envResults > 0 then
+        results = envResults
+    end
+    
+    return results
 end
 
 -- Ore definitions (supports both normal and deepslate)
@@ -360,7 +442,15 @@ local function handleRequest(id, msg)
     elseif msg.type == "request_scan" then
         print(string.format("[%s] Scan request from turtle %d", os.time(), id))
         local scanX, scanY, scanZ = msg.x or 0, msg.y or 0, msg.z or 0
-        local scan = doScan(SCAN_RADIUS)
+        
+        -- Use hybrid scan if Environment Detector available, otherwise use geo scanner
+        local scan
+        if envDetector then
+            scan = doHybridScan(SCAN_RADIUS)
+        else
+            scan = doScan(SCAN_RADIUS)
+        end
+        
         addOresFromScan(scan, scanX, scanY, scanZ)
         rednet.send(id, { 
             type = "scan_result", 
@@ -826,12 +916,27 @@ if BASALT then
             addLog(">>> MANUAL SCAN <<<")
             updateDisplay()
             
-            local scan = doScan(SCAN_RADIUS)
+            -- Use hybrid scan if available
+            local scan
+            if envDetector then
+                addLog("Using hybrid scan (Geo + Environment Detector)")
+                scan = doHybridScan(SCAN_RADIUS)
+            else
+                addLog("Using geo scanner only")
+                scan = doScan(SCAN_RADIUS)
+            end
+            
             addLog(string.format("Scanned %d blocks", #scan))
             
             if #scan == 0 then
-                addLog("ERROR: Geo scanner failed!")
-                addLog("Check geo_scanner_1 connection")
+                addLog("ERROR: Scanner failed!")
+                if not scanner and not envDetector then
+                    addLog("No scanners available!")
+                elseif scanner and not envDetector then
+                    addLog("Check geo_scanner_1 connection")
+                elseif envDetector and not scanner then
+                    addLog("Check Environment Detector")
+                end
             else
                 local beforeOres = #mapData.ores
                 addOresFromScan(scan, 0, 0, 0)

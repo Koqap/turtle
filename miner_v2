@@ -118,18 +118,142 @@ local function loadHomeLocation()
 end
 
 ----------------------------------
--- ENVIRONMENT DETECTOR
+-- ENVIRONMENT DETECTOR (Advanced Peripherals)
 ----------------------------------
+local envDetector = peripheral.find("environmentDetector")
+
+local function scanBlocksWithEnvDetector(radius)
+    if not envDetector then return nil end
+    
+    print("Using Environment Detector for advanced scan...")
+    local ok, blocks = pcall(function() 
+        return envDetector.scan(radius) 
+    end)
+    
+    if ok and blocks then
+        print(string.format("  Scanned %d blocks in %d block radius", #blocks, radius))
+        return blocks
+    end
+    return nil
+end
+
+local function findChestWithEnvDetector()
+    if not envDetector then return nil end
+    
+    print("Scanning for chests with Environment Detector...")
+    
+    -- Scan 5 block radius
+    local blocks = scanBlocksWithEnvDetector(5)
+    if not blocks then return nil end
+    
+    -- Find chests
+    local chests = {}
+    for _, block in ipairs(blocks) do
+        if block.name and string.find(block.name, "chest") then
+            table.insert(chests, block)
+            print(string.format("  Found chest at offset: %d, %d, %d", 
+                block.x or 0, block.y or 0, block.z or 0))
+        end
+    end
+    
+    if #chests == 0 then
+        print("  No chests found in scan")
+        return nil
+    end
+    
+    -- Find closest chest
+    local closest = chests[1]
+    local minDist = math.abs(closest.x or 0) + math.abs(closest.y or 0) + math.abs(closest.z or 0)
+    
+    for _, chest in ipairs(chests) do
+        local dist = math.abs(chest.x or 0) + math.abs(chest.y or 0) + math.abs(chest.z or 0)
+        if dist < minDist then
+            closest = chest
+            minDist = dist
+        end
+    end
+    
+    return closest
+end
+
 local function detectChestEnvironment()
     print("═══════════════════════════════")
     print("  ENVIRONMENT AUTO-DETECTION")
     print("═══════════════════════════════")
     print("")
-    print("Scanning for chest...")
     
     -- Get current position
     local pos = getPos()
     print(string.format("Current position: %d, %d, %d", pos.x, pos.y, pos.z))
+    
+    -- Try Environment Detector first (if available)
+    if envDetector then
+        print("✓ Environment Detector found!")
+        local chest = findChestWithEnvDetector()
+        
+        if chest and chest.x and chest.z then
+            local cx, cy, cz = chest.x, chest.y or 0, chest.z
+            print(string.format("✓ Chest detected at offset: %+d, %+d, %+d", cx, cy, cz))
+            
+            -- Determine direction based on offset
+            local chestDir = nil
+            if math.abs(cx) > math.abs(cz) then
+                -- X axis dominant
+                if cx > 0 then
+                    chestDir = 1  -- East
+                    print("  Chest is to the EAST")
+                else
+                    chestDir = 3  -- West
+                    print("  Chest is to the WEST")
+                end
+            else
+                -- Z axis dominant
+                if cz > 0 then
+                    chestDir = 2  -- South
+                    print("  Chest is to the SOUTH")
+                else
+                    chestDir = 0  -- North
+                    print("  Chest is to the NORTH")
+                end
+            end
+            
+            if cy ~= 0 then
+                if cy > 0 then
+                    print(string.format("  ⚠ Chest is %d block(s) ABOVE!", cy))
+                else
+                    print(string.format("  ⚠ Chest is %d block(s) BELOW!", math.abs(cy)))
+                end
+            end
+            
+            -- Face away from chest
+            local awayDir = (chestDir + 2) % 4
+            
+            -- Turn to face away
+            while facing ~= awayDir do
+                turtle.turnRight()
+                facing = (facing + 1) % 4
+            end
+            
+            print(string.format("✓ Facing away from chest (direction %d)", awayDir))
+            print(string.format("✓ Auto-configured home: %d, %d, %d", pos.x, pos.y, pos.z))
+            
+            return {
+                x = pos.x,
+                y = pos.y,
+                z = pos.z,
+                facing = awayDir
+            }
+        else
+            print("  Environment Detector: No chest found nearby")
+            print("  Falling back to turtle inspection...")
+        end
+    else
+        print("Environment Detector not found (optional)")
+        print("Using turtle inspection method...")
+    end
+    
+    -- Fallback: Standard turtle inspection
+    print("Scanning for chest with turtle...")
     
     -- Check all 4 horizontal directions for chest
     local chestDir = nil
