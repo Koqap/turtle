@@ -535,20 +535,49 @@ while true do
         idleCount = 0
         
         -- Execute path
-        local success = executePathSteps(steps)
+        print(string.format("Target: %s at %d,%d,%d", target.name, target.x, target.y, target.z))
         
-        if success then
-            -- Mine the ore
-            print("Mining ore...")
-            turtle.dig()
-            turtle.digDown()
-            turtle.digUp()
-            stats.oresMined = stats.oresMined + 1
+        local success = false
+        local ok, err = pcall(function()
+            success = executePathSteps(steps)
+        end)
+        
+        if not ok then
+            print("ERROR moving to ore:", err)
+            print("Reporting ore as unreachable...")
+            rednet.send(COMPUTER_ID, {
+                type = "ore_failed",
+                x = target.x,
+                y = target.y,
+                z = target.z
+            }, PROTOCOL)
+        elseif success then
+            -- Check if we're actually at the ore location
+            local pos = getPos()
+            local dist = math.abs(pos.x - target.x) + math.abs(pos.y - target.y) + math.abs(pos.z - target.z)
             
-            -- Report to computer
-            reportOreMined(target)
-            
-            sleep(0.5)
+            if dist <= 1 then
+                -- We're close enough, mine it
+                print("Mining ore...")
+                turtle.dig()
+                turtle.digDown()
+                turtle.digUp()
+                stats.oresMined = stats.oresMined + 1
+                
+                -- Report to computer
+                reportOreMined(target)
+                
+                sleep(0.5)
+            else
+                print(string.format("Not close enough to ore (distance: %d)", dist))
+                print("Reporting as unreachable...")
+                rednet.send(COMPUTER_ID, {
+                    type = "ore_failed",
+                    x = target.x,
+                    y = target.y,
+                    z = target.z
+                }, PROTOCOL)
+            end
         end
     else
         -- No ores available

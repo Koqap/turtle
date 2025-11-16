@@ -367,41 +367,31 @@ local function handleRequest(id, msg)
         end
         
         if not bestIdx then
-            print("  No available ores")
+            print("  No available ores matching filter")
             rednet.send(id, { 
                 type = "path", 
                 steps = {} 
             }, PROTOCOL)
             return
         end
-        
-        -- mark claimed to avoid races
-        mapData.ores[bestIdx].claimed = true
-        saveMap()
 
         local target = mapData.ores[bestIdx]
-        print(string.format("  Target ore: %s at %d,%d,%d", target.name, target.x, target.y, target.z))
+        print(string.format("  Target: %s at %d,%d,%d (distance: %d)", 
+            target.name, target.x, target.y, target.z, math.floor(bestDist)))
         
-        -- compute path with A*
-        local path = nil
-        local ok, res = pcall(function() 
-            return computePath(
-                {x=cx, y=cy, z=cz}, 
-                {x=target.x, y=target.y, z=target.z}
-            ) 
-        end)
+        -- SIMPLIFIED PATH: Just send the target coordinates
+        -- The turtle will navigate there directly without complex A*
+        local simplePath = {{x=target.x, y=target.y, z=target.z}}
         
-        if ok and res then
-            path = res
-            print(string.format("  Path found: %d steps", #path))
-        else
-            path = {}
-            print("  Path computation failed:", res)
-        end
+        -- Mark as claimed ONLY after sending
+        mapData.ores[bestIdx].claimed = true
+        saveMap()
+        
+        print(string.format("  Sent target to turtle %d", id))
         
         rednet.send(id, { 
             type = "path", 
-            steps = path, 
+            steps = simplePath, 
             target = target 
         }, PROTOCOL)
 
@@ -425,6 +415,22 @@ local function handleRequest(id, msg)
             type = "ack",
             remaining = #mapData.ores
         }, PROTOCOL)
+        
+    elseif msg.type == "ore_failed" then
+        print(string.format("[%s] Ore unreachable from turtle %d", os.time(), id))
+        local ox, oy, oz = msg.x, msg.y, msg.z
+        
+        -- Unclaim the ore so another turtle can try, or mark as visited
+        for i, o in ipairs(mapData.ores) do
+            if o.x == ox and o.y == oy and o.z == oz then 
+                print(string.format("  Marking unreachable: %s at %d,%d,%d", o.name, ox, oy, oz))
+                -- Mark as visited so we don't keep trying
+                mapData.visited[keyFrom(ox, oy, oz)] = true
+                table.remove(mapData.ores, i)
+                break 
+            end
+        end
+        saveMap()
     end
 end
 
