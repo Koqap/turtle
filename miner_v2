@@ -133,7 +133,7 @@ end
 ----------------------------------
 -- ENVIRONMENT DETECTOR (Advanced Peripherals)
 ----------------------------------
-local envDetector = peripheral.find("environmentDetector")
+local envDetector = peripheral.wrap("environment_detector_1")
 
 local function scanBlocksWithEnvDetector(radius)
     if not envDetector then return nil end

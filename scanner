@@ -21,11 +21,11 @@ local systemRunning = false  -- Manual start/stop control
 ----------------------------------
 -- PERIPHERALS SETUP
 ----------------------------------
-local scanner = peripheral.wrap("geo_scanner_1")  -- Use peripheral name
+local scanner = peripheral.wrap("geo_scanner_2")  -- Use peripheral name
 local modem = peripheral.wrap(modemSide)
 
 -- Environment Detector (Advanced Peripherals) - Optional
-local envDetector = peripheral.find("environmentDetector")
+local envDetector = peripheral.wrap("environment_detector_1")
 
 -- Disk drive storage - DISABLED (causes disk full errors)
 local drive = nil  -- Disabled to avoid disk space issues
@@ -41,9 +41,9 @@ end
 
 -- Scanner status
 if scanner then
-    print("✓ Geo Scanner: Found (geo_scanner_1)")
+    print("✓ Geo Scanner: Found (geo_scanner_2)")
 else
-    print("⚠ Geo Scanner: Not found (geo_scanner_1)")
+    print("⚠ Geo Scanner: Not found (geo_scanner_2)")
 end
 
 -- Environment Detector status
@@ -1053,7 +1053,7 @@ if BASALT then
                 if not scanner and not envDetector then
                     addLog("No scanners available!")
                 elseif scanner and not envDetector then
-                    addLog("Check geo_scanner_1 connection")
+                    addLog("Check geo_scanner_2 connection")
                 elseif envDetector and not scanner then
                     addLog("Check Environment Detector")
                 end
