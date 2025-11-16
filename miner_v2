@@ -136,57 +136,8 @@ if savedHome then
     facing = homeFacing
     print(string.format("✓ Loaded home: %d, %d, %d", savedHome.x, savedHome.y, savedHome.z))
     print(string.format("✓ Facing: %s", ({"north","east","south","west"})[homeFacing+1] or "unknown"))
-    
-    -- Verify turtle is at home position
-    local currentPos = getPos()
-    local atHome = (currentPos.x == homePos.x and currentPos.y == homePos.y and currentPos.z == homePos.z)
-    
-    if not atHome then
-        print(string.format("⚠ Not at home! Currently at: %d,%d,%d", currentPos.x, currentPos.y, currentPos.z))
-        print(string.format("⚠ Home location: %d,%d,%d", homePos.x, homePos.y, homePos.z))
-        print("")
-        print("AUTO-NAVIGATING back to home base...")
-        print("(This may take a while)")
-        
-        -- Auto-navigate to home
-        moveAbs(homePos.x, homePos.y, homePos.z)
-        
-        print("✓ Arrived at home!")
-    else
-        print("✓ Turtle at home position")
-    end
-    
-    -- Verify chest is still there
-    print("Verifying chest...")
-    turtle.turnLeft()
-    turtle.turnLeft()
-    
-    local ok, chestData = turtle.inspect()
-    if not ok or not string.find(chestData.name or "", "chest") then
-        turtle.turnLeft()
-        turtle.turnLeft()
-        print("")
-        print("═══════════════════════════════════")
-        print("ERROR: Chest not found at home!")
-        print("═══════════════════════════════════")
-        print("Expected chest behind home position")
-        print(string.format("Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
-        print("")
-        print("Please:")
-        print("  1. Place chest behind turtle")
-        print("  2. OR delete home_location.txt")
-        print("  3. Then restart miner_v2")
-        print("═══════════════════════════════════")
-        error("Chest verification failed")
-    end
-    
-    print("✓ Chest verified!")
-    turtle.turnLeft()
-    turtle.turnLeft()
-    
-    print("✓ Ready to mine!")
+    print("(Position check will happen after loading functions...)")
     print("")
-    print("(To reset home: delete home_location.txt)")
 else
     -- First time setup
     print("FIRST TIME SETUP")
@@ -646,6 +597,61 @@ else
     print("")
     print("Press ENTER to continue anyway...")
     read()
+end
+
+----------------------------------
+-- AUTO-RETURN HOME (if saved home exists)
+----------------------------------
+if savedHome then
+    print("Checking position...")
+    local currentPos = getPos()
+    local atHome = (currentPos.x == homePos.x and currentPos.y == homePos.y and currentPos.z == homePos.z)
+    
+    if not atHome then
+        print(string.format("⚠ Not at home! Currently at: %d,%d,%d", currentPos.x, currentPos.y, currentPos.z))
+        print(string.format("⚠ Home location: %d,%d,%d", homePos.x, homePos.y, homePos.z))
+        print("")
+        print("AUTO-NAVIGATING back to home base...")
+        print("(This may take a while)")
+        
+        -- Auto-navigate to home
+        moveAbs(homePos.x, homePos.y, homePos.z)
+        
+        print("✓ Arrived at home!")
+    else
+        print("✓ Turtle at home position")
+    end
+    
+    -- Verify chest is still there
+    print("Verifying chest...")
+    turtle.turnLeft()
+    turtle.turnLeft()
+    
+    local ok, chestData = turtle.inspect()
+    if not ok or not string.find(chestData.name or "", "chest") then
+        turtle.turnLeft()
+        turtle.turnLeft()
+        print("")
+        print("═══════════════════════════════════")
+        print("ERROR: Chest not found at home!")
+        print("═══════════════════════════════════")
+        print("Expected chest behind home position")
+        print(string.format("Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
+        print("")
+        print("Please:")
+        print("  1. Place chest behind turtle")
+        print("  2. OR delete home_location.txt")
+        print("  3. Then restart miner_v2")
+        print("═══════════════════════════════════")
+        error("Chest verification failed")
+    end
+    
+    print("✓ Chest verified!")
+    turtle.turnLeft()
+    turtle.turnLeft()
+    
+    print("✓ Ready to mine!")
+    print("")
 end
 
 -- Initial scan request
