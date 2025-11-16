@@ -524,8 +524,8 @@ if BASALT then
         addLog("SmartMiner started")
         addLog(string.format("Computer ID: %d", COMPUTER_ID))
         
-        -- Schedule periodic updates
-        main:addThread():start(function()
+        -- Schedule periodic updates using basalt.schedule
+        basalt.schedule(function()
             while true do
                 updateDisplay()
                 sleep(1)
@@ -533,7 +533,7 @@ if BASALT then
         end)
         
         -- Schedule rednet listener
-        main:addThread():start(function()
+        basalt.schedule(function()
             while true do
                 local senderId, message = rednet.receive(PROTOCOL, 0.5)
                 if senderId then
@@ -545,7 +545,7 @@ if BASALT then
         end)
         
         -- Schedule auto-save
-        main:addThread():start(function()
+        basalt.schedule(function()
             while true do
                 sleep(AUTO_SAVE_INTERVAL)
                 saveMap()
@@ -553,18 +553,24 @@ if BASALT then
             end
         end)
         
-        -- Quit handler
-        main:onEvent(function(event, key)
-            if event == "key" and key == keys.q then
-                saveMap()
-                basalt.stop()
+        -- Event handler for quit
+        basalt.schedule(function()
+            while true do
+                local event, key = os.pullEvent("key")
+                if key == keys.q then
+                    saveMap()
+                    addLog("Shutting down...")
+                    sleep(0.5)
+                    basalt.stop()
+                    break
+                end
             end
         end)
         
-        print("Basalt GUI initialized. Press Q to quit.")
+        print("Basalt GUI starting... Press Q to quit.")
         
-        -- Start Basalt (v2 API - NO .show() method)
-        basalt.autoUpdate()
+        -- Start Basalt - use run() instead of autoUpdate()
+        basalt.run()
     end
 end
 
