@@ -64,6 +64,10 @@ local gps = gps  -- Use built-in GPS
 local lastKnown = {x=0, y=0, z=0}
 local facing = 0  -- 0=north, 1=east, 2=south, 3=west
 
+-- Home position and facing (declared early for saveHomeLocation)
+local homePos
+local homeFacing
+
 local function getPos()
     -- Try GPS multiple times
     for attempt = 1, 3 do
@@ -86,6 +90,15 @@ end
 local HOME_FILE = "home_location.txt"
 
 local function saveHomeLocation(pos, face)
+    -- Use global variables if parameters not provided
+    pos = pos or homePos
+    face = face or homeFacing
+    
+    if not pos then
+        print("✗ Cannot save: No home position")
+        return false
+    end
+    
     local f = fs.open(HOME_FILE, "w")
     if f then
         f.writeLine(textutils.serialize({
@@ -311,9 +324,6 @@ print("════════════════════════�
 print("Turtle ID:", TURTLE_ID)
 print("Computer ID:", COMPUTER_ID)
 print("")
-
-local homePos
-local homeFacing
 
 -- Try to load saved home location
 local savedHome = loadHomeLocation()
