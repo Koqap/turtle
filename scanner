@@ -392,12 +392,13 @@ if BASALT then
     else
         -- Get main frame
         local main = basalt.getMainFrame()
+        local w, h = term.getSize()
         
         -- Create title label
         local titleLabel = main:addLabel()
             :setText("SMARTMINER COMPUTER BRAIN")
             :setPosition(1, 1)
-            :setSize("parent.w", 1)
+            :setSize(w, 1)
             :setBackground(colors.blue)
             :setForeground(colors.white)
         
@@ -405,7 +406,7 @@ if BASALT then
         local statusLabel = main:addLabel()
             :setText("Initializing...")
             :setPosition(1, 2)
-            :setSize("parent.w", 1)
+            :setSize(w, 1)
             :setBackground(colors.gray)
             :setForeground(colors.yellow)
         
@@ -413,7 +414,7 @@ if BASALT then
         local oreListLabel = main:addLabel()
             :setText("Loading...")
             :setPosition(1, 4)
-            :setSize("parent.w", 20)
+            :setSize(w, 20)
             :setBackground(colors.black)
             :setForeground(colors.white)
         
@@ -421,7 +422,7 @@ if BASALT then
         local logLabel = main:addLabel()
             :setText("Activity Log:")
             :setPosition(1, 25)
-            :setSize("parent.w", 6)
+            :setSize(w, h - 24)
             :setBackground(colors.black)
             :setForeground(colors.lightGray)
         
