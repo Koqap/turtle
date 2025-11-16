@@ -520,8 +520,21 @@ if BASALT then
                 elseif key == keys.s then
                     addLog("Manual scan triggered...")
                     local scan = doScan(SCAN_RADIUS)
-                    addOresFromScan(scan, 0, 0, 0)
-                    addLog(string.format("Scan complete: %d blocks", #scan))
+                    addLog(string.format("Scanned %d blocks", #scan))
+                    
+                    if #scan == 0 then
+                        addLog("ERROR: No blocks found!")
+                        addLog("Check geo scanner placement")
+                    else
+                        local beforeOres = #mapData.ores
+                        addOresFromScan(scan, 0, 0, 0)
+                        local afterOres = #mapData.ores
+                        addLog(string.format("Found %d new ores", afterOres - beforeOres))
+                        
+                        if afterOres == beforeOres then
+                            addLog("No ores in scan range")
+                        end
+                    end
                     updateDisplay()
                 end
             end
