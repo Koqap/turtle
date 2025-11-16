@@ -1,0 +1,22 @@
+-- Update Scanner: remove old GUI and download new GUI
+
+local oldFile = "gui"
+local newURL = "http://127.0.0.1:8000/scanner"
+
+print("[Scanner] Updating...")
+
+-- Remove old GUI
+if fs.exists(oldFile) then
+    fs.delete(oldFile)
+    print("Removed old GUI")
+else
+    print("No old GUI found")
+end
+
+-- Download new GUI
+local ok = shell.run("wget", newURL, oldFile)
+if ok then
+    print("Downloaded new GUI successfully!")
+else
+    print("Failed to download GUI")
+end
