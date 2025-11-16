@@ -245,6 +245,13 @@ local function tryForward()
     
     -- Blocked - dig and retry
     while not turtle.forward() do
+        -- Check if it's a chest - DON'T DIG IT!
+        local ok, blockData = turtle.inspect()
+        if ok and blockData and blockData.name and string.find(blockData.name, "chest") then
+            print("⚠ Chest detected! Avoiding...")
+            return false  -- Don't dig chest, return failure
+        end
+        
         if turtle.dig() then
             stats.blocksMinedForward = stats.blocksMinedForward + 1
         end
@@ -342,7 +349,7 @@ local function moveAbs(targetX, targetY, targetZ)
         moveCount = moveCount + 1
     end
     
-    -- Move on X axis
+    -- Move on X axis with smart obstacle avoidance
     local xDiff = targetX - lastKnown.x
     if xDiff > 0 then 
         turnTo(1)  -- East
@@ -353,13 +360,45 @@ local function moveAbs(targetX, targetY, targetZ)
     end
     
     moveCount = 0
+    local failCount = 0
     while lastKnown.x ~= targetX and moveCount < maxMoves do
-        tryForward()
-        moveCount = moveCount + 1
+        local success = tryForward()
         
-        -- Progress update every 10 blocks
-        if moveCount % 10 == 0 then
-            print(string.format("  X progress: %d", moveCount))
+        if success then
+            moveCount = moveCount + 1
+            failCount = 0  -- Reset fail count on success
+            
+            -- Progress update every 10 blocks
+            if moveCount % 10 == 0 then
+                print(string.format("  X progress: %d", moveCount))
+            end
+        else
+            -- Failed to move forward (e.g., hit chest or unbreakable)
+            failCount = failCount + 1
+            
+            if failCount > 3 then
+                print("  ⚠ Blocked! Trying alternate path...")
+                -- Try going up and around
+                tryUp()
+                if tryForward() then
+                    tryDown()
+                    moveCount = moveCount + 1
+                    failCount = 0
+                else
+                    -- Still blocked, try down
+                    tryDown()
+                    tryDown()
+                    if tryForward() then
+                        tryUp()
+                        moveCount = moveCount + 1
+                        failCount = 0
+                    else
+                        tryUp()  -- Return to original Y level
+                        print("  ✗ Cannot bypass obstacle!")
+                        break
+                    end
+                end
+            end
         end
         
         -- Safety: If we've moved expected distance, stop
@@ -369,7 +408,7 @@ local function moveAbs(targetX, targetY, targetZ)
         end
     end
     
-    -- Move on Z axis
+    -- Move on Z axis with smart obstacle avoidance
     local zDiff = targetZ - lastKnown.z
     if zDiff > 0 then 
         turnTo(2)  -- South
@@ -380,13 +419,45 @@ local function moveAbs(targetX, targetY, targetZ)
     end
     
     moveCount = 0
+    failCount = 0
     while lastKnown.z ~= targetZ and moveCount < maxMoves do
-        tryForward()
-        moveCount = moveCount + 1
+        local success = tryForward()
         
-        -- Progress update every 10 blocks
-        if moveCount % 10 == 0 then
-            print(string.format("  Z progress: %d", moveCount))
+        if success then
+            moveCount = moveCount + 1
+            failCount = 0  -- Reset fail count on success
+            
+            -- Progress update every 10 blocks
+            if moveCount % 10 == 0 then
+                print(string.format("  Z progress: %d", moveCount))
+            end
+        else
+            -- Failed to move forward (e.g., hit chest or unbreakable)
+            failCount = failCount + 1
+            
+            if failCount > 3 then
+                print("  ⚠ Blocked! Trying alternate path...")
+                -- Try going up and around
+                tryUp()
+                if tryForward() then
+                    tryDown()
+                    moveCount = moveCount + 1
+                    failCount = 0
+                else
+                    -- Still blocked, try down
+                    tryDown()
+                    tryDown()
+                    if tryForward() then
+                        tryUp()
+                        moveCount = moveCount + 1
+                        failCount = 0
+                    else
+                        tryUp()  -- Return to original Y level
+                        print("  ✗ Cannot bypass obstacle!")
+                        break
+                    end
+                end
+            end
         end
         
         -- Safety: If we've moved expected distance, stop
@@ -717,33 +788,58 @@ if savedHome then
         end
     end
     
-    -- Verify chest is still there
+    -- Verify chest is accessible
     print("Verifying chest...")
-    turtle.turnLeft()
-    turtle.turnLeft()
     
-    local ok, chestData = turtle.inspect()
-    if not ok or not string.find(chestData.name or "", "chest") then
-        turtle.turnLeft()
-        turtle.turnLeft()
+    -- Try all 4 directions to find chest
+    local chestFound = false
+    local chestDirection = nil
+    
+    for dir = 0, 3 do
+        local ok, blockData = turtle.inspect()
+        if ok and blockData and blockData.name then
+            if string.find(blockData.name, "chest") then
+                chestFound = true
+                chestDirection = facing
+                print(string.format("✓ Chest found at direction %d", facing))
+                
+                -- Update homeFacing to correct direction
+                -- Turtle should face AWAY from chest
+                homeFacing = (facing + 2) % 4
+                facing = homeFacing
+                
+                -- Turn to face away from chest
+                turtle.turnLeft()
+                turtle.turnLeft()
+                
+                -- Save corrected facing
+                saveHomeLocation(homePos, homeFacing)
+                break
+            end
+        end
+        
+        -- Try next direction
+        turtle.turnRight()
+        facing = (facing + 1) % 4
+    end
+    
+    if not chestFound then
         print("")
         print("═══════════════════════════════════")
         print("ERROR: Chest not found at home!")
         print("═══════════════════════════════════")
-        print("Expected chest behind home position")
+        print("Checked all 4 directions")
         print(string.format("Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
         print("")
         print("Please:")
-        print("  1. Place chest behind turtle")
+        print("  1. Place chest next to turtle")
         print("  2. OR delete home_location.txt")
         print("  3. Then restart miner_v2")
         print("═══════════════════════════════════")
         error("Chest verification failed")
     end
     
-    print("✓ Chest verified!")
-    turtle.turnLeft()
-    turtle.turnLeft()
+    print("✓ Chest verified and direction corrected!")
     
     print("✓ Ready to mine!")
     print("")
