@@ -613,31 +613,59 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
         if distance == 0 then
             print(string.format("✓ Arrived at: %d, %d, %d", lastKnown.x, lastKnown.y, lastKnown.z))
             return true
-        elseif distance <= 2 then
+        elseif distance <= 3 then
             print(string.format("✓ Close: %d, %d, %d (off by %d)", lastKnown.x, lastKnown.y, lastKnown.z, distance))
             
-            -- Try to correct small offset
-            print("  Fine-tuning position...")
-            if lastKnown.x < targetX then
+            -- Try to correct small offset (EXACT positioning required)
+            print("  Fine-tuning to EXACT position...")
+            
+            -- Y axis first
+            while lastKnown.y < targetY do
+                print(string.format("  Moving up (Y: %d → %d)", lastKnown.y, targetY))
+                if not tryUp() then break end
+                local tx, ty, tz = gps.locate(5)
+                if tx then lastKnown = {x=math.floor(tx), y=math.floor(ty), z=math.floor(tz)} end
+            end
+            
+            while lastKnown.y > targetY do
+                print(string.format("  Moving down (Y: %d → %d)", lastKnown.y, targetY))
+                if not tryDown() then break end
+                local tx, ty, tz = gps.locate(5)
+                if tx then lastKnown = {x=math.floor(tx), y=math.floor(ty), z=math.floor(tz)} end
+            end
+            
+            -- X axis
+            while lastKnown.x < targetX do
+                print(string.format("  Moving East (X: %d → %d)", lastKnown.x, targetX))
                 turnTo(1)
-                for i = 1, (targetX - lastKnown.x) do tryForward() end
-            elseif lastKnown.x > targetX then
+                if not tryForward() then break end
+                local tx, ty, tz = gps.locate(5)
+                if tx then lastKnown = {x=math.floor(tx), y=math.floor(ty), z=math.floor(tz)} end
+            end
+            
+            while lastKnown.x > targetX do
+                print(string.format("  Moving West (X: %d → %d)", lastKnown.x, targetX))
                 turnTo(3)
-                for i = 1, (lastKnown.x - targetX) do tryForward() end
+                if not tryForward() then break end
+                local tx, ty, tz = gps.locate(5)
+                if tx then lastKnown = {x=math.floor(tx), y=math.floor(ty), z=math.floor(tz)} end
             end
             
-            if lastKnown.z < targetZ then
+            -- Z axis
+            while lastKnown.z < targetZ do
+                print(string.format("  Moving South (Z: %d → %d)", lastKnown.z, targetZ))
                 turnTo(2)
-                for i = 1, (targetZ - lastKnown.z) do tryForward() end
-            elseif lastKnown.z > targetZ then
-                turnTo(0)
-                for i = 1, (lastKnown.z - targetZ) do tryForward() end
+                if not tryForward() then break end
+                local tx, ty, tz = gps.locate(5)
+                if tx then lastKnown = {x=math.floor(tx), y=math.floor(ty), z=math.floor(tz)} end
             end
             
-            if lastKnown.y < targetY then
-                for i = 1, (targetY - lastKnown.y) do tryUp() end
-            elseif lastKnown.y > targetY then
-                for i = 1, (lastKnown.y - targetY) do tryDown() end
+            while lastKnown.z > targetZ do
+                print(string.format("  Moving North (Z: %d → %d)", lastKnown.z, targetZ))
+                turnTo(0)
+                if not tryForward() then break end
+                local tx, ty, tz = gps.locate(5)
+                if tx then lastKnown = {x=math.floor(tx), y=math.floor(ty), z=math.floor(tz)} end
             end
             
             -- Final check
@@ -645,7 +673,11 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
             if fx then
                 lastKnown = {x=math.floor(fx), y=math.floor(fy), z=math.floor(fz)}
                 distance = math.abs(lastKnown.x - targetX) + math.abs(lastKnown.y - targetY) + math.abs(lastKnown.z - targetZ)
-                print(string.format("✓ Corrected to: %d, %d, %d (distance: %d)", lastKnown.x, lastKnown.y, lastKnown.z, distance))
+                if distance == 0 then
+                    print(string.format("✓ EXACT position: %d, %d, %d", lastKnown.x, lastKnown.y, lastKnown.z))
+                else
+                    print(string.format("✓ Best effort: %d, %d, %d (off by %d)", lastKnown.x, lastKnown.y, lastKnown.z, distance))
+                end
             end
             
             return true
@@ -756,30 +788,63 @@ end
 local function depositToChest()
     print("Depositing to chest...")
     
-    -- Turn to face home direction
-    while facing ~= homeFacing do
-        turtle.turnRight()
-        facing = (facing + 1) % 4
+    -- First, make sure we're at exact home position
+    local px, py, pz = gps.locate(5)
+    if px then
+        local currentX, currentY, currentZ = math.floor(px), math.floor(py), math.floor(pz)
+        print(string.format("  Current: %d, %d, %d", currentX, currentY, currentZ))
+        print(string.format("  Home:    %d, %d, %d", homePos.x, homePos.y, homePos.z))
+        
+        -- Check if we need position correction
+        if currentX ~= homePos.x or currentY ~= homePos.y or currentZ ~= homePos.z then
+            print("  ⚠ Position mismatch! Correcting...")
+            moveAbs(homePos.x, homePos.y, homePos.z)
+        end
     end
     
-    -- Turn around to face chest
-    turtle.turnLeft()
-    turtle.turnLeft()
-    facing = (facing + 2) % 4
+    -- Scan all 4 directions to find chest
+    print("  Scanning for chest...")
+    local chestFound = false
+    local chestDirection = nil
     
-    -- Verify chest is still there
-    local ok, blockData = turtle.inspect()
-    if not ok or not string.find(blockData.name or "", "chest") then
-        print("ERROR: Chest not found at home!")
-        print("Expected chest behind home position")
-        print("Please replace chest or reset home location")
-        print("")
-        print("Keeping items in inventory...")
+    for dir = 0, 3 do
+        turnTo(dir)
+        local ok, blockData = turtle.inspect()
+        if ok and blockData.name and string.find(blockData.name, "chest") then
+            print(string.format("  ✓ Found chest at direction %d", dir))
+            chestFound = true
+            chestDirection = dir
+            break
+        end
+    end
+    
+    if not chestFound then
+        print("ERROR: Chest not found in any direction!")
+        print("Checking up and down...")
         
-        -- Turn back
-        turtle.turnLeft()
-        turtle.turnLeft()
-        facing = (facing + 2) % 4
+        -- Check up
+        local ok, blockData = turtle.inspectUp()
+        if ok and blockData.name and string.find(blockData.name, "chest") then
+            print("  ✗ Chest is ABOVE! Y-level wrong!")
+            print("  Moving up 1 block...")
+            tryUp()
+            homePos.y = homePos.y + 1
+            saveHomeLocation()
+            return depositToChest()  -- Retry
+        end
+        
+        -- Check down
+        ok, blockData = turtle.inspectDown()
+        if ok and blockData.name and string.find(blockData.name, "chest") then
+            print("  ✗ Chest is BELOW! Y-level wrong!")
+            print("  Moving down 1 block...")
+            tryDown()
+            homePos.y = homePos.y - 1
+            saveHomeLocation()
+            return depositToChest()  -- Retry
+        end
+        
+        print("Keeping items in inventory...")
         
         -- Notify computer
         rednet.send(COMPUTER_ID, {
@@ -790,6 +855,14 @@ local function depositToChest()
         
         return false
     end
+    
+    -- Face the chest and update homeFacing
+    turnTo(chestDirection)
+    
+    -- Update homeFacing to face AWAY from chest
+    homeFacing = (chestDirection + 2) % 4
+    saveHomeLocation()  -- Save corrected direction
+    print(string.format("  Updated home facing: %d (away from chest)", homeFacing))
     
     -- Chest found, deposit items
     local deposited = 0
@@ -805,10 +878,8 @@ local function depositToChest()
     
     print(string.format("✓ Deposited %d items", deposited))
     
-    -- Turn back
-    turtle.turnLeft()
-    turtle.turnLeft()
-    facing = (facing + 2) % 4
+    -- Turn to face away from chest (home direction)
+    turnTo(homeFacing)
     
     smartRefuel()
     return true
