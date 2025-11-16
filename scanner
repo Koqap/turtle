@@ -5,7 +5,7 @@
 -- CONFIGURATION
 ----------------------------------
 local scannerSide = "right"          -- side where geo scanner is attached
-local modemSide = "top"              -- side where wireless modem is attached
+local modemSide = "left"             -- side where wireless modem is attached
 local memorySide = "back"            -- side with memory card
 local BASALT = true                  -- set true if Basalt installed
 local SCAN_RADIUS = 8                -- scanner radius
