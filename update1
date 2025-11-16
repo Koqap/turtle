@@ -1,0 +1,22 @@
+-- Update Miner: remove old AI file and download new AI file
+
+local oldFile = "ai"
+local newURL = "http://127.0.0.1:8000/miner_v2"
+
+print("[Miner] Updating...")
+
+-- Remove old AI
+if fs.exists(oldFile) then
+    fs.delete(oldFile)
+    print("Removed old AI")
+else
+    print("No old AI found")
+end
+
+-- Download new AI
+local ok = shell.run("wget", newURL, oldFile)
+if ok then
+    print("Downloaded new AI successfully!")
+else
+    print("Failed to download AI")
+end
