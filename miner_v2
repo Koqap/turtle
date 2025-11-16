@@ -1702,20 +1702,113 @@ while true do
             local pos = getPos()
             local dist = math.abs(pos.x - target.x) + math.abs(pos.y - target.y) + math.abs(pos.z - target.z)
             
-            if dist <= 1 then
-                -- We're close enough, mine it
-                print("Mining ore...")
-                turtle.dig()
-                turtle.digDown()
-                turtle.digUp()
-                stats.oresMined = stats.oresMined + 1
+            print(string.format("Distance to ore: %d blocks", dist))
+            print(string.format("  Current: %d, %d, %d", pos.x, pos.y, pos.z))
+            print(string.format("  Target:  %d, %d, %d", target.x, target.y, target.z))
+            
+            if dist <= 3 then
+                -- Close enough - make final approach
+                if dist > 0 then
+                    print("Making final approach to ore...")
+                    
+                    -- Try to get closer (best effort)
+                    local attempts = 0
+                    while dist > 0 and attempts < 5 do
+                        local moved = false
+                        
+                        -- Try Y axis first
+                        if pos.y < target.y then
+                            if tryUp() then moved = true end
+                        elseif pos.y > target.y then
+                            if tryDown() then moved = true end
+                        end
+                        
+                        -- Try X axis
+                        if pos.x < target.x then
+                            turnTo(1)  -- East
+                            if tryForward() then moved = true end
+                        elseif pos.x > target.x then
+                            turnTo(3)  -- West
+                            if tryForward() then moved = true end
+                        end
+                        
+                        -- Try Z axis
+                        if pos.z < target.z then
+                            turnTo(2)  -- South
+                            if tryForward() then moved = true end
+                        elseif pos.z > target.z then
+                            turnTo(0)  -- North
+                            if tryForward() then moved = true end
+                        end
+                        
+                        -- Update position
+                        pos = getPos()
+                        local newDist = math.abs(pos.x - target.x) + math.abs(pos.y - target.y) + math.abs(pos.z - target.z)
+                        
+                        if newDist >= dist and not moved then
+                            -- Not getting closer, stop trying
+                            break
+                        end
+                        
+                        dist = newDist
+                        attempts = attempts + 1
+                    end
+                    
+                    print(string.format("Final distance: %d blocks", dist))
+                end
                 
-                -- Report to computer
-                reportOreMined(target)
+                -- Mine in all directions around turtle
+                print("Mining ore (checking all directions)...")
+                local oreFound = false
                 
-                sleep(0.5)
+                -- Check and mine in front (all 4 directions)
+                for dir = 0, 3 do
+                    turnTo(dir)
+                    local ok, blockData = turtle.inspect()
+                    if ok and blockData.name and blockData.name:find("_ore") then
+                        print(string.format("  ✓ Found ore in direction %d: %s", dir, blockData.name))
+                        turtle.dig()
+                        oreFound = true
+                    end
+                end
+                
+                -- Check and mine up
+                local ok, blockData = turtle.inspectUp()
+                if ok and blockData.name and blockData.name:find("_ore") then
+                    print("  ✓ Found ore above: " .. blockData.name)
+                    turtle.digUp()
+                    oreFound = true
+                end
+                
+                -- Check and mine down
+                ok, blockData = turtle.inspectDown()
+                if ok and blockData.name and blockData.name:find("_ore") then
+                    print("  ✓ Found ore below: " .. blockData.name)
+                    turtle.digDown()
+                    oreFound = true
+                end
+                
+                if oreFound then
+                    print("✓ Ore mined successfully!")
+                    stats.oresMined = stats.oresMined + 1
+                    
+                    -- Report to computer
+                    reportOreMined(target)
+                    
+                    sleep(0.5)
+                else
+                    print("⚠ No ore found in any direction")
+                    print("Ore may have been mined already or location inaccurate")
+                    rednet.send(COMPUTER_ID, {
+                        type = "ore_failed",
+                        x = target.x,
+                        y = target.y,
+                        z = target.z,
+                        position = pos
+                    }, PROTOCOL)
+                end
             else
-                print(string.format("Not close enough to ore (distance: %d)", dist))
+                print(string.format("Too far from ore (distance: %d blocks)", dist))
                 print("Reporting as unreachable...")
                 rednet.send(COMPUTER_ID, {
                     type = "ore_failed",
