@@ -21,11 +21,11 @@ local TURTLE_TIMEOUT = 5
 local scanner = peripheral.wrap("geo_scanner_1")  -- Use peripheral name
 local modem = peripheral.wrap(modemSide)
 
--- Disk drive storage instead of memory card
-local drive = peripheral.find("drive")
+-- Disk drive storage - DISABLED (causes disk full errors)
+local drive = nil  -- Disabled to avoid disk space issues
 
 if not scanner then
-    print("WARNING: Geo scanner not found on " .. scannerSide)
+    print("WARNING: Geo scanner not found on geo_scanner_1")
 end
 
 -- Ensure rednet open
@@ -34,6 +34,8 @@ if modem and peripheral.getType(modemSide):find("modem") then
 else
     print("Warning: modem not found on " .. modemSide)
 end
+
+print("Note: Disk saving disabled - data stored in memory only")
 
 ----------------------------------
 -- MAP DATA STRUCTURE
