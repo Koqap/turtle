@@ -199,6 +199,30 @@ local function detectChestViaScanner()
     print("═══════════════════════════════")
     print("")
     
+    -- Verify turtle has wireless modem
+    local modem = peripheral.find("modem")
+    if not modem then
+        print("✗ ERROR: Turtle has no wireless modem!")
+        print("  Place wireless modem on turtle")
+        error("No wireless modem")
+    end
+    print(string.format("✓ Wireless modem found: %s", peripheral.getName(modem)))
+    
+    -- Verify rednet is open
+    if not rednet.isOpen() then
+        print("✗ ERROR: Rednet is not open!")
+        print("  Opening rednet...")
+        for _, side in ipairs({"left", "right", "top", "bottom", "front", "back"}) do
+            if peripheral.getType(side) == "modem" then
+                rednet.open(side)
+                print("  ✓ Rednet opened on " .. side)
+                break
+            end
+        end
+    else
+        print("✓ Rednet is open")
+    end
+    
     -- Get current position
     local pos = getPos()
     print(string.format("Turtle position: %d, %d, %d", pos.x, pos.y, pos.z))

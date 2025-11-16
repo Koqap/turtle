@@ -53,8 +53,18 @@ if envDetector then
     if ok and maxRadius then
         print("  Max scan radius: " .. maxRadius)
     end
+    
+    -- Test scan to verify it works
+    print("  Testing Environment Detector scan...")
+    local testOk, testResult = pcall(function() return envDetector.scan(5) end)
+    if testOk and testResult then
+        print(string.format("  ✓ Test scan successful! Found %d blocks", #testResult))
+    else
+        print("  ✗ Test scan FAILED! Error: " .. tostring(testResult))
+    end
 else
     print("⚠ Environment Detector: Not found (optional)")
+    print("  Chest scans will NOT work!")
 end
 
 -- Monitor status
@@ -717,7 +727,22 @@ local function handleRequest(id, msg)
         end
         
         print("  ✓ Environment Detector available")
+        print(string.format("  ✓ Peripheral name: %s", peripheral.getName(envDetector)))
         print(string.format("  ✓ Scanner position: %d, %d, %d", SCANNER_X, SCANNER_Y, SCANNER_Z))
+        
+        -- Check if Environment Detector has scan method
+        if not envDetector.scan then
+            print("  ✗ ERROR: envDetector.scan method not found!")
+            print("  ✗ Environment Detector may not be properly connected")
+            chestScanStats.failedScans = chestScanStats.failedScans + 1
+            chestScanStats.lastResult = "FAILED: No scan method"
+            rednet.send(id, {
+                type = "chest_scan_result",
+                success = false,
+                error = "Environment Detector scan method not available"
+            }, PROTOCOL)
+            return
+        end
         
         -- Use Environment Detector to scan for chests
         -- Scanner's Environment Detector scans relative to SCANNER position
@@ -731,18 +756,35 @@ local function handleRequest(id, msg)
         -- Scan 15 block radius (should cover turtle + 5 block chest range)
         local scanRadius = 15
         print(string.format("  Scanning with Environment Detector (radius: %d)...", scanRadius))
+        print("  Calling envDetector.scan()...")
         
         local ok, blocks = pcall(function() return envDetector.scan(scanRadius) end)
         
-        if not ok or not blocks then
-            print("  ✗ ERROR: Environment Detector scan failed!")
-            print("  Error:", blocks)
+        print(string.format("  Scan pcall result: ok=%s, blocks type=%s", 
+            tostring(ok), type(blocks)))
+        
+        if not ok then
+            print("  ✗ ERROR: Environment Detector scan threw error!")
+            print("  Error message:", tostring(blocks))
             chestScanStats.failedScans = chestScanStats.failedScans + 1
             chestScanStats.lastResult = "FAILED: Scan error"
             rednet.send(id, {
                 type = "chest_scan_result",
                 success = false,
-                error = "Scan failed"
+                error = "Scan failed: " .. tostring(blocks)
+            }, PROTOCOL)
+            return
+        end
+        
+        if not blocks or type(blocks) ~= "table" then
+            print("  ✗ ERROR: Environment Detector returned invalid data!")
+            print("  Expected table, got:", type(blocks))
+            chestScanStats.failedScans = chestScanStats.failedScans + 1
+            chestScanStats.lastResult = "FAILED: Invalid data"
+            rednet.send(id, {
+                type = "chest_scan_result",
+                success = false,
+                error = "Invalid scan data"
             }, PROTOCOL)
             return
         end
