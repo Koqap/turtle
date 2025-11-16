@@ -444,6 +444,12 @@ local function handleRequest(id, msg)
         print(string.format("[%s] Scan request from turtle %d", os.time(), id))
         local scanX, scanY, scanZ = msg.x or 0, msg.y or 0, msg.z or 0
         
+        -- Update turtle position from scan request
+        updateTurtle(id, {
+            position = {x=scanX, y=scanY, z=scanZ},
+            status = "requesting scan"
+        })
+        
         -- Use hybrid scan if Environment Detector available, otherwise use geo scanner
         local scan
         if envDetector then
@@ -599,12 +605,13 @@ local function handleRequest(id, msg)
         local ox, oy, oz = msg.x, msg.y, msg.z
         mapData.visited[keyFrom(ox, oy, oz)] = true
         
-        -- Update turtle tracking
-        if turtles[id] then
-            turtles[id].oresMined = (turtles[id].oresMined or 0) + 1
-            turtles[id].status = "ore mined"
-            turtles[id].currentTarget = nil
-        end
+        -- Update turtle tracking with position
+        updateTurtle(id, {
+            oresMined = (turtles[id] and turtles[id].oresMined or 0) + 1,
+            status = "ore mined",
+            position = {x=ox, y=oy, z=oz},
+            currentTarget = nil
+        })
         
         -- remove ore from list
         for i, o in ipairs(mapData.ores) do
@@ -625,6 +632,12 @@ local function handleRequest(id, msg)
     elseif msg.type == "ore_failed" then
         print(string.format("[%s] Ore unreachable from turtle %d", os.time(), id))
         local ox, oy, oz = msg.x, msg.y, msg.z
+        
+        -- Update turtle position
+        updateTurtle(id, {
+            status = "ore failed",
+            position = msg.position or {x=ox, y=oy, z=oz}
+        })
         
         -- Unclaim the ore so another turtle can try, or mark as visited
         for i, o in ipairs(mapData.ores) do
@@ -776,40 +789,56 @@ if BASALT then
             term.write(string.rep(" ", mw))
             term.setCursorPos(1, 1)
             term.write("SMARTMINER STATUS MONITOR")
+            term.setCursorPos(mw - 8, 1)
+            term.write(os.date("%H:%M:%S"))
             
-            -- Stats
+            -- System status
             term.setBackgroundColor(colors.black)
             term.setTextColor(colors.white)
             term.setCursorPos(1, 3)
-            term.write(string.format("Ores Tracked: %d", #mapData.ores))
+            term.write(string.format("Computer ID: %d | Range: %d blocks", COMPUTER_ID, MAX_MINING_RANGE))
+            
+            term.setCursorPos(1, 4)
+            local envStatus = envDetector and "YES" or "NO"
+            local geoStatus = scanner and "YES" or "NO"
+            term.write(string.format("Geo Scanner: %s | EnvDetector: %s", geoStatus, envStatus))
+            
+            term.setCursorPos(1, 5)
+            term.write(string.format("Ores Tracked: %d | System: %s", 
+                #mapData.ores, systemRunning and "RUNNING" or "STOPPED"))
             
             -- Turtle list
-            term.setCursorPos(1, 5)
+            term.setCursorPos(1, 7)
             term.setTextColor(colors.lime)
             term.write("ACTIVE TURTLES:")
+            term.write(string.rep("=", mw - 15))
             
             local turtleCount = 0
             for _ in pairs(turtles) do turtleCount = turtleCount + 1 end
             
             if turtleCount == 0 then
-                term.setCursorPos(1, 6)
+                term.setCursorPos(1, 8)
                 term.setTextColor(colors.gray)
                 term.write("No turtles connected")
             else
-                local line = 6
+                local line = 8
                 for id, t in pairs(turtles) do
+                    if line >= mh - 2 then break end  -- Don't overflow monitor
+                    
                     term.setCursorPos(1, line)
-                    term.setTextColor(colors.white)
+                    term.setTextColor(colors.yellow)
                     term.write(string.format("Turtle #%d", id))
                     
                     line = line + 1
                     term.setCursorPos(3, line)
-                    term.setTextColor(colors.lightGray)
-                    term.write(string.format("Status: %s", t.status))
+                    term.setTextColor(colors.white)
+                    term.write(string.format("Status: %s", t.status or "unknown"))
                     
                     line = line + 1
                     term.setCursorPos(3, line)
-                    term.write(string.format("Pos: %d, %d, %d", t.position.x, t.position.y, t.position.z))
+                    term.setTextColor(colors.lightBlue)
+                    local pos = t.position or {x=0, y=0, z=0}
+                    term.write(string.format("Position: %d, %d, %d", pos.x, pos.y, pos.z))
                     
                     line = line + 1
                     term.setCursorPos(3, line)
@@ -830,13 +859,14 @@ if BASALT then
                 end
             end
             
-            -- Footer
+            -- Footer with more info
             term.setCursorPos(1, mh)
             term.setBackgroundColor(colors.gray)
             term.setTextColor(colors.white)
             term.write(string.rep(" ", mw))
             term.setCursorPos(1, mh)
-            term.write(string.format("Last Update: %s", os.date("%H:%M:%S")))
+            term.write(string.format("Update: %s | Turtles: %d | EnvDet: %s", 
+                os.date("%H:%M:%S"), turtleCount, envDetector and "YES" or "NO"))
             
             term.redirect(oldTerm)
         end
@@ -1088,11 +1118,14 @@ if BASALT then
         
         updateDisplay()
         
-        -- Background thread: Update display
+        -- Background thread: Update display and monitor
         basalt.schedule(function()
             while true do
                 updateDisplay()
-                sleep(2)
+                if monitor then
+                    updateMonitor()
+                end
+                sleep(1)  -- Update every 1 second for real-time position updates
             end
         end)
         
@@ -1104,6 +1137,9 @@ if BASALT then
                     addLog(string.format("Turtle %d: %s", senderId, message.type or "unknown"))
                     handleRequest(senderId, message)
                     updateDisplay()
+                    if monitor then
+                        updateMonitor()  -- Update monitor immediately after receiving message
+                    end
                 end
             end
         end)

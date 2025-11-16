@@ -1410,6 +1410,25 @@ requestScan()
 sleep(2)
 
 ----------------------------------
+-- POSITION UPDATE
+----------------------------------
+local lastPositionUpdate = 0
+
+local function sendPositionUpdate()
+    -- Send position update every 5 seconds
+    local now = os.epoch("utc")
+    if now - lastPositionUpdate < 5000 then return end
+    
+    lastPositionUpdate = now
+    local pos = getPos()
+    rednet.send(COMPUTER_ID, {
+        type = "status_update",
+        status = "mining",
+        position = pos
+    }, PROTOCOL)
+end
+
+----------------------------------
 -- COMMAND HANDLER
 ----------------------------------
 local function checkCommands()
@@ -1457,6 +1476,9 @@ while true do
     -- Check for commands at start of cycle
     checkCommands()
     
+    -- Send position update to scanner
+    sendPositionUpdate()
+    
     miningCycle = miningCycle + 1
     print(string.format("=== Cycle %d ===", miningCycle))
     
@@ -1497,7 +1519,8 @@ while true do
                 type = "ore_failed",
                 x = target.x,
                 y = target.y,
-                z = target.z
+                z = target.z,
+                position = getPos()  -- Include current position
             }, PROTOCOL)
         elseif success then
             -- Check if we're actually at the ore location
@@ -1523,7 +1546,8 @@ while true do
                     type = "ore_failed",
                     x = target.x,
                     y = target.y,
-                    z = target.z
+                    z = target.z,
+                    position = pos  -- Include current position
                 }, PROTOCOL)
             end
         end
