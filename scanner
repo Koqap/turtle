@@ -390,8 +390,8 @@ if BASALT then
         print("")
         BASALT = false
     else
-        -- Create main frame
-        local main = basalt.createFrame()
+        -- Get main frame (Basalt v2 API)
+        local main = basalt.getMainFrame()
         
         local mapW, mapH = 45, 18
         
