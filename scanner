@@ -476,6 +476,25 @@ if BASALT then
         -- Initialize
         addLog("SmartMiner initialized")
         addLog(string.format("Computer ID: %d", COMPUTER_ID))
+        
+        -- Do initial scan on startup
+        addLog("Performing initial scan...")
+        updateDisplay()
+        sleep(0.5)
+        
+        local initialScan = doScan(SCAN_RADIUS)
+        addLog(string.format("Scanned %d blocks", #initialScan))
+        
+        if #initialScan == 0 then
+            addLog("ERROR: Geo scanner not working!")
+            addLog("Check RIGHT side connection")
+        else
+            local beforeOres = #mapData.ores
+            addOresFromScan(initialScan, 0, 0, 0)
+            local afterOres = #mapData.ores
+            addLog(string.format("Found %d ores total", afterOres))
+        end
+        
         updateDisplay()
         
         -- Background thread: Update display
