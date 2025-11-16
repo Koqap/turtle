@@ -18,7 +18,7 @@ local TURTLE_TIMEOUT = 5
 ----------------------------------
 -- PERIPHERALS SETUP
 ----------------------------------
-local scanner = peripheral.wrap(scannerSide)
+local scanner = peripheral.wrap("geo_scanner_1")  -- Use peripheral name
 local modem = peripheral.wrap(modemSide)
 
 -- Disk drive storage instead of memory card
@@ -418,6 +418,40 @@ if BASALT then
             :setBackground(colors.black)
             :setForeground(colors.white)
         
+        -- Create scan button
+        local scanButton = main:addButton()
+            :setText("SCAN NOW")
+            :setPosition(2, 3)
+            :setSize(15, 1)
+            :setBackground(colors.green)
+            :setForeground(colors.white)
+        
+        -- Scan button click handler
+        scanButton:onClick(function()
+            addLog(">>> SCAN STARTED <<<")
+            updateDisplay()
+            
+            local scan = doScan(SCAN_RADIUS)
+            addLog(string.format("Scanned %d blocks", #scan))
+            
+            if #scan == 0 then
+                addLog("ERROR: Geo scanner failed!")
+                addLog("Check geo_scanner_1 connection")
+            else
+                local beforeOres = #mapData.ores
+                addOresFromScan(scan, 0, 0, 0)
+                local afterOres = #mapData.ores
+                addLog(string.format("Found %d ores total", afterOres))
+                
+                if afterOres == beforeOres then
+                    addLog("No NEW ores in scan area")
+                else
+                    addLog(string.format("Added %d new ores!", afterOres - beforeOres))
+                end
+            end
+            updateDisplay()
+        end)
+        
         -- Create log label
         local logLabel = main:addLabel()
             :setText("Activity Log:")
@@ -441,7 +475,7 @@ if BASALT then
         local function updateDisplay()
             -- Update status
             statusLabel:setText(string.format(
-                " ID:%d | Protocol:%s | Ores:%d | Press S=Scan Q=Quit",
+                " ID:%d | Protocol:%s | Ores:%d | Click SCAN button or Press Q=Quit",
                 COMPUTER_ID, PROTOCOL, #mapData.ores
             ))
             
