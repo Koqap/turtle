@@ -65,14 +65,18 @@ local lastKnown = {x=0, y=0, z=0}
 local facing = 0  -- 0=north, 1=east, 2=south, 3=west
 
 local function getPos()
-    if gps then
-        local x, y, z = gps.locate(2)
+    -- Try GPS multiple times
+    for attempt = 1, 3 do
+        local x, y, z = gps.locate(5)
         if x then 
             lastKnown = {x=math.floor(x), y=math.floor(y), z=math.floor(z)}
             return lastKnown
         end
+        if attempt < 3 then
+            sleep(1)
+        end
     end
-    -- Fallback to internal tracking
+    -- Fallback to internal tracking (may be inaccurate!)
     return lastKnown
 end
 
@@ -317,22 +321,49 @@ end
 -- ABSOLUTE POSITION MOVEMENT
 ----------------------------------
 local function moveAbs(targetX, targetY, targetZ)
+    print(string.format("→ Moving to: %d, %d, %d", targetX, targetY, targetZ))
+    
     local pos = getPos()
+    print(string.format("  Starting from: %d, %d, %d", pos.x, pos.y, pos.z))
+    
     local moveCount = 0
     local maxMoves = 500
+    local stuckCount = 0
+    local lastPos = {x=pos.x, y=pos.y, z=pos.z}
     
     -- Move vertically first
     while pos.y < targetY and moveCount < maxMoves do
         tryUp()
         pos = getPos()
         moveCount = moveCount + 1
+        
+        -- Check if stuck
+        if pos.y == lastPos.y and moveCount % 10 == 0 then
+            stuckCount = stuckCount + 1
+            if stuckCount > 3 then
+                print(string.format("  WARNING: Stuck at Y=%d", pos.y))
+                break
+            end
+        end
+        lastPos.y = pos.y
     end
     
     moveCount = 0
+    stuckCount = 0
     while pos.y > targetY and moveCount < maxMoves do
         tryDown()
         pos = getPos()
         moveCount = moveCount + 1
+        
+        -- Check if stuck
+        if pos.y == lastPos.y and moveCount % 10 == 0 then
+            stuckCount = stuckCount + 1
+            if stuckCount > 3 then
+                print(string.format("  WARNING: Stuck at Y=%d", pos.y))
+                break
+            end
+        end
+        lastPos.y = pos.y
     end
     
     -- Move on X axis
@@ -340,10 +371,26 @@ local function moveAbs(targetX, targetY, targetZ)
     if pos.x > targetX then turnTo(3) end  -- West
     
     moveCount = 0
+    stuckCount = 0
     while pos.x ~= targetX and moveCount < maxMoves do
         tryForward()
         pos = getPos()
         moveCount = moveCount + 1
+        
+        -- Progress update every 10 blocks
+        if moveCount % 10 == 0 then
+            print(string.format("  X: %d/%d", pos.x, targetX))
+        end
+        
+        -- Check if stuck
+        if pos.x == lastPos.x and moveCount % 10 == 0 then
+            stuckCount = stuckCount + 1
+            if stuckCount > 3 then
+                print(string.format("  WARNING: Stuck at X=%d", pos.x))
+                break
+            end
+        end
+        lastPos.x = pos.x
     end
     
     -- Move on Z axis
@@ -351,13 +398,41 @@ local function moveAbs(targetX, targetY, targetZ)
     if pos.z > targetZ then turnTo(0) end  -- North
     
     moveCount = 0
+    stuckCount = 0
     while pos.z ~= targetZ and moveCount < maxMoves do
         tryForward()
         pos = getPos()
         moveCount = moveCount + 1
+        
+        -- Progress update every 10 blocks
+        if moveCount % 10 == 0 then
+            print(string.format("  Z: %d/%d", pos.z, targetZ))
+        end
+        
+        -- Check if stuck
+        if pos.z == lastPos.z and moveCount % 10 == 0 then
+            stuckCount = stuckCount + 1
+            if stuckCount > 3 then
+                print(string.format("  WARNING: Stuck at Z=%d", pos.z))
+                break
+            end
+        end
+        lastPos.z = pos.z
     end
     
-    return true
+    -- Final position check
+    pos = getPos()
+    local distance = math.abs(pos.x - targetX) + math.abs(pos.y - targetY) + math.abs(pos.z - targetZ)
+    
+    if distance == 0 then
+        print(string.format("✓ Arrived at: %d, %d, %d", pos.x, pos.y, pos.z))
+        return true
+    else
+        print(string.format("⚠ Close but not exact. Distance: %d blocks", distance))
+        print(string.format("  Current: %d, %d, %d", pos.x, pos.y, pos.z))
+        print(string.format("  Target: %d, %d, %d", targetX, targetY, targetZ))
+        return false
+    end
 end
 
 ----------------------------------
@@ -604,22 +679,55 @@ end
 ----------------------------------
 if savedHome then
     print("Checking position...")
-    local currentPos = getPos()
-    local atHome = (currentPos.x == homePos.x and currentPos.y == homePos.y and currentPos.z == homePos.z)
     
-    if not atHome then
-        print(string.format("⚠ Not at home! Currently at: %d,%d,%d", currentPos.x, currentPos.y, currentPos.z))
-        print(string.format("⚠ Home location: %d,%d,%d", homePos.x, homePos.y, homePos.z))
+    -- Get position with GPS validation
+    print("Getting GPS coordinates...")
+    local x, y, z = gps.locate(5)
+    
+    if not x then
+        print("═══════════════════════════════════")
+        print("ERROR: GPS signal not available!")
+        print("═══════════════════════════════════")
+        print("Cannot determine current position")
         print("")
-        print("AUTO-NAVIGATING back to home base...")
-        print("(This may take a while)")
-        
-        -- Auto-navigate to home
-        moveAbs(homePos.x, homePos.y, homePos.z)
-        
-        print("✓ Arrived at home!")
+        print("Solutions:")
+        print("  1. Set up GPS satellites")
+        print("  2. Move turtle closer to GPS")
+        print("  3. Manually move turtle to home:")
+        print(string.format("     %d, %d, %d", homePos.x, homePos.y, homePos.z))
+        print("")
+        print("Press ENTER to skip position check...")
+        read()
     else
-        print("✓ Turtle at home position")
+        local currentPos = {x=math.floor(x), y=math.floor(y), z=math.floor(z)}
+        lastKnown = currentPos
+        
+        print(string.format("✓ GPS Position: %d, %d, %d", currentPos.x, currentPos.y, currentPos.z))
+        
+        local atHome = (currentPos.x == homePos.x and 
+                       currentPos.y == homePos.y and 
+                       currentPos.z == homePos.z)
+        
+        if not atHome then
+            local distance = math.abs(currentPos.x - homePos.x) + 
+                           math.abs(currentPos.y - homePos.y) + 
+                           math.abs(currentPos.z - homePos.z)
+            
+            print(string.format("⚠ Not at home! Distance: %d blocks", distance))
+            print(string.format("  Current: %d, %d, %d", currentPos.x, currentPos.y, currentPos.z))
+            print(string.format("  Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
+            print("")
+            print("AUTO-NAVIGATING back to home base...")
+            print("(This may take a while)")
+            print("")
+            
+            -- Auto-navigate to home
+            moveAbs(homePos.x, homePos.y, homePos.z)
+            
+            print("✓ Arrived at home!")
+        else
+            print("✓ Turtle at home position")
+        end
     end
     
     -- Verify chest is still there
