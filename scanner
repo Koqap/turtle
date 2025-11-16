@@ -377,9 +377,13 @@ end
 ----------------------------------
 -- BASALT GUI v2 API
 ----------------------------------
+print("DEBUG: BASALT variable is:", BASALT)
+
 if BASALT then
     print("Initializing Basalt GUI (v2)...")
+    print("DEBUG: Attempting to load Basalt...")
     local ok, basalt = pcall(require, "basalt")
+    print("DEBUG: pcall result - ok:", ok, "basalt:", type(basalt))
     
     if not ok then
         print("Basalt not available, using text mode")
