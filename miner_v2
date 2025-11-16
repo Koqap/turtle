@@ -459,6 +459,13 @@ local function tryForward()
     
     -- Blocked - dig and retry
     while not turtle.forward() do
+        -- Check for return home command
+        checkCommandsNonBlocking()
+        if returnHomeRequested then
+            print("⚠ Return home requested, aborting movement")
+            return false
+        end
+        
         -- Check if it's a chest - DON'T DIG IT!
         local ok, blockData = turtle.inspect()
         if ok and blockData and blockData.name and string.find(blockData.name, "chest") then
@@ -492,6 +499,13 @@ local function tryUp()
     end
     
     while not turtle.up() do
+        -- Check for return home command
+        checkCommandsNonBlocking()
+        if returnHomeRequested then
+            print("⚠ Return home requested, aborting movement")
+            return false
+        end
+        
         -- Check if it's a chest - DON'T DIG IT!
         local ok, blockData = turtle.inspectUp()
         if ok and blockData and blockData.name and string.find(blockData.name, "chest") then
@@ -520,6 +534,13 @@ local function tryDown()
     end
     
     while not turtle.down() do
+        -- Check for return home command
+        checkCommandsNonBlocking()
+        if returnHomeRequested then
+            print("⚠ Return home requested, aborting movement")
+            return false
+        end
+        
         -- Check if it's a chest - DON'T DIG IT!
         local ok, blockData = turtle.inspectDown()
         if ok and blockData and blockData.name and string.find(blockData.name, "chest") then
@@ -605,6 +626,13 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
     
     -- Move vertically first (use lastKnown for position)
     while lastKnown.y < targetY and moveCount < maxMoves do
+        -- Check for return home command
+        checkCommandsNonBlocking()
+        if returnHomeRequested then
+            print("⚠ Return home requested during Y movement")
+            return
+        end
+        
         tryUp()
         moveCount = moveCount + 1
         
@@ -620,6 +648,13 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
     
     moveCount = 0
     while lastKnown.y > targetY and moveCount < maxMoves do
+        -- Check for return home command
+        checkCommandsNonBlocking()
+        if returnHomeRequested then
+            print("⚠ Return home requested during Y movement")
+            return
+        end
+        
         tryDown()
         moveCount = moveCount + 1
         
@@ -647,6 +682,13 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
     local lastDistance = math.abs(targetX - lastKnown.x)
     
     while lastKnown.x ~= targetX and moveCount < maxMoves do
+        -- Check for return home command
+        checkCommandsNonBlocking()
+        if returnHomeRequested then
+            print("⚠ Return home requested during X movement")
+            return
+        end
+        
         -- Recalculate direction based on current position
         local xDiff = targetX - lastKnown.x
         if xDiff > 0 then 
@@ -778,6 +820,13 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
     local lastDistance = math.abs(targetZ - lastKnown.z)
     
     while lastKnown.z ~= targetZ and moveCount < maxMoves do
+        -- Check for return home command
+        checkCommandsNonBlocking()
+        if returnHomeRequested then
+            print("⚠ Return home requested during Z movement")
+            return
+        end
+        
         -- Recalculate direction based on current position
         local zDiff = targetZ - lastKnown.z
         if zDiff > 0 then 
@@ -928,6 +977,13 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
             
             -- X axis
             while lastKnown.x < targetX do
+                -- Check for return home command
+                checkCommandsNonBlocking()
+                if returnHomeRequested then
+                    print("⚠ Return home requested during fine-tuning")
+                    return
+                end
+                
                 print(string.format("  Moving East (X: %d → %d)", lastKnown.x, targetX))
                 turnTo(1)
                 if not tryForward() then break end
@@ -936,6 +992,13 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
             end
             
             while lastKnown.x > targetX do
+                -- Check for return home command
+                checkCommandsNonBlocking()
+                if returnHomeRequested then
+                    print("⚠ Return home requested during fine-tuning")
+                    return
+                end
+                
                 print(string.format("  Moving West (X: %d → %d)", lastKnown.x, targetX))
                 turnTo(3)
                 if not tryForward() then break end
@@ -945,6 +1008,13 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
             
             -- Z axis
             while lastKnown.z < targetZ do
+                -- Check for return home command
+                checkCommandsNonBlocking()
+                if returnHomeRequested then
+                    print("⚠ Return home requested during fine-tuning")
+                    return
+                end
+                
                 print(string.format("  Moving South (Z: %d → %d)", lastKnown.z, targetZ))
                 turnTo(2)
                 if not tryForward() then break end
@@ -953,6 +1023,13 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
             end
             
             while lastKnown.z > targetZ do
+                -- Check for return home command
+                checkCommandsNonBlocking()
+                if returnHomeRequested then
+                    print("⚠ Return home requested during fine-tuning")
+                    return
+                end
+                
                 print(string.format("  Moving North (Z: %d → %d)", lastKnown.z, targetZ))
                 turnTo(0)
                 if not tryForward() then break end
@@ -1001,6 +1078,13 @@ local function executePathSteps(steps)
     print(string.format("Executing path: %d steps", #steps))
     
     for i, step in ipairs(steps) do
+        -- Check for return home command before each step
+        checkCommandsNonBlocking()
+        if returnHomeRequested then
+            print("⚠ Return home requested, aborting path execution")
+            return false
+        end
+        
         if i % 10 == 0 then
             print(string.format("  Step %d/%d", i, #steps))
         end
@@ -1410,9 +1494,10 @@ requestScan()
 sleep(2)
 
 ----------------------------------
--- POSITION UPDATE
+-- POSITION UPDATE & COMMAND HANDLING
 ----------------------------------
 local lastPositionUpdate = 0
+local returnHomeRequested = false  -- Global flag for immediate return
 
 local function sendPositionUpdate()
     -- Send position update every 5 seconds
@@ -1428,14 +1513,27 @@ local function sendPositionUpdate()
     }, PROTOCOL)
 end
 
-----------------------------------
--- COMMAND HANDLER
-----------------------------------
+local function checkCommandsNonBlocking()
+    -- Quick check for commands without processing (for use in loops)
+    local senderId, message = rednet.receive(PROTOCOL, 0)
+    if senderId and message and message.type == "return_home" then
+        returnHomeRequested = true
+        print("")
+        print("════════════════════════════════════════")
+        print("*** RETURN HOME command received! ***")
+        print("*** Interrupting current operation! ***")
+        print("════════════════════════════════════════")
+        return true
+    end
+    return false
+end
+
 local function checkCommands()
     -- Check for commands from computer (non-blocking)
     local senderId, message = rednet.receive(PROTOCOL, 0)
     if senderId and message then
         if message.type == "return_home" then
+            returnHomeRequested = true
             print("")
             print("═══════════════════════════════════")
             print("*** RETURN HOME command received! ***")
@@ -1463,6 +1561,7 @@ local function checkCommands()
             print("(Press Ctrl+T to stop)")
             print("═══════════════════════════════════")
             sleep(5)
+            returnHomeRequested = false  -- Reset flag
             return true
         end
     end
