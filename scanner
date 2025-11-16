@@ -76,6 +76,34 @@ end
 print("Note: Disk saving disabled - data stored in memory only")
 
 ----------------------------------
+-- SCANNER POSITION (GPS)
+----------------------------------
+print("")
+print("Getting scanner position via GPS...")
+local SCANNER_X, SCANNER_Y, SCANNER_Z = gps.locate(5)
+
+if SCANNER_X then
+    SCANNER_X = math.floor(SCANNER_X)
+    SCANNER_Y = math.floor(SCANNER_Y)
+    SCANNER_Z = math.floor(SCANNER_Z)
+    print(string.format("✓ Scanner at: %d, %d, %d", SCANNER_X, SCANNER_Y, SCANNER_Z))
+    print("  Ore coordinates will be ABSOLUTE (world coordinates)")
+else
+    print("✗ WARNING: GPS not available!")
+    print("  Ore coordinates will be RELATIVE to scanner!")
+    print("  Mining may not work correctly!")
+    print("")
+    print("GPS Setup:")
+    print("  1. Place 4+ GPS computers in different locations")
+    print("  2. Each GPS computer needs high altitude (Y > 100)")
+    print("  3. Spread them apart (not in a line)")
+    print("  4. Run 'gps host' on each")
+    print("")
+    SCANNER_X, SCANNER_Y, SCANNER_Z = 0, 0, 0
+end
+print("")
+
+----------------------------------
 -- MAP DATA STRUCTURE
 ----------------------------------
 local mapData = {
@@ -442,11 +470,11 @@ local function handleRequest(id, msg)
         
     elseif msg.type == "request_scan" then
         print(string.format("[%s] Scan request from turtle %d", os.time(), id))
-        local scanX, scanY, scanZ = msg.x or 0, msg.y or 0, msg.z or 0
+        local turtleX, turtleY, turtleZ = msg.x or 0, msg.y or 0, msg.z or 0
         
         -- Update turtle position from scan request
         updateTurtle(id, {
-            position = {x=scanX, y=scanY, z=scanZ},
+            position = {x=turtleX, y=turtleY, z=turtleZ},
             status = "requesting scan"
         })
         
@@ -458,7 +486,11 @@ local function handleRequest(id, msg)
             scan = doScan(SCAN_RADIUS)
         end
         
-        addOresFromScan(scan, scanX, scanY, scanZ)
+        -- IMPORTANT: Scan is relative to SCANNER position, not turtle position!
+        -- Use SCANNER_X, SCANNER_Y, SCANNER_Z as the center point
+        print(string.format("  Scan center: %d, %d, %d (scanner position)", SCANNER_X, SCANNER_Y, SCANNER_Z))
+        addOresFromScan(scan, SCANNER_X, SCANNER_Y, SCANNER_Z)
+        
         rednet.send(id, { 
             type = "scan_result", 
             ores = mapData.ores,
@@ -1093,9 +1125,11 @@ if BASALT then
                 end
             else
                 local beforeOres = #mapData.ores
-                addOresFromScan(scan, 0, 0, 0)
+                -- Use scanner position as scan center
+                addOresFromScan(scan, SCANNER_X, SCANNER_Y, SCANNER_Z)
                 local afterOres = #mapData.ores
                 addLog(string.format("Found %d ores total", afterOres))
+                addLog(string.format("Scan center: %d,%d,%d", SCANNER_X, SCANNER_Y, SCANNER_Z))
                 
                 if afterOres == beforeOres then
                     addLog("No NEW ores in scan area")
