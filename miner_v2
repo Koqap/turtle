@@ -200,128 +200,89 @@ end
 
 local function detectChestEnvironment()
     print("═══════════════════════════════")
-    print("  ENVIRONMENT AUTO-DETECTION")
+    print("  SMART CHEST DETECTION")
     print("═══════════════════════════════")
     print("")
+    
+    -- Require Environment Detector
+    if not envDetector then
+        print("✗ ERROR: Environment Detector required!")
+        print("")
+        print("Setup:")
+        print("  1. Place Environment Detector (Advanced Peripherals)")
+        print("  2. Name it: environment_detector_1")
+        print("  3. Connect to turtle (wired modem or adjacent)")
+        print("")
+        error("Environment Detector not found: environment_detector_1")
+    end
     
     -- Get current position
     local pos = getPos()
     print(string.format("Current position: %d, %d, %d", pos.x, pos.y, pos.z))
+    print("")
     
-    -- Try Environment Detector first (if available)
-    if envDetector then
-        print("✓ Environment Detector found!")
-        local chest = findChestWithEnvDetector()
-        
-        if chest and chest.x and chest.z then
-            local cx, cy, cz = chest.x, chest.y or 0, chest.z
-            print(string.format("✓ Chest detected at offset: %+d, %+d, %+d", cx, cy, cz))
-            
-            -- Determine direction based on offset
-            local chestDir = nil
-            if math.abs(cx) > math.abs(cz) then
-                -- X axis dominant
-                if cx > 0 then
-                    chestDir = 1  -- East
-                    print("  Chest is to the EAST")
-                else
-                    chestDir = 3  -- West
-                    print("  Chest is to the WEST")
-                end
-            else
-                -- Z axis dominant
-                if cz > 0 then
-                    chestDir = 2  -- South
-                    print("  Chest is to the SOUTH")
-                else
-                    chestDir = 0  -- North
-                    print("  Chest is to the NORTH")
-                end
-            end
-            
-            if cy ~= 0 then
-                if cy > 0 then
-                    print(string.format("  ⚠ Chest is %d block(s) ABOVE!", cy))
-                else
-                    print(string.format("  ⚠ Chest is %d block(s) BELOW!", math.abs(cy)))
-                end
-            end
-            
-            -- Face away from chest
-            local awayDir = (chestDir + 2) % 4
-            
-            -- Turn to face away
-            while facing ~= awayDir do
-                turtle.turnRight()
-                facing = (facing + 1) % 4
-            end
-            
-            print(string.format("✓ Facing away from chest (direction %d)", awayDir))
-            print(string.format("✓ Auto-configured home: %d, %d, %d", pos.x, pos.y, pos.z))
-            
-            return {
-                x = pos.x,
-                y = pos.y,
-                z = pos.z,
-                facing = awayDir
-            }
-        else
-            print("  Environment Detector: No chest found nearby")
-            print("  Falling back to turtle inspection...")
-        end
+    -- Scan for chest
+    print("Scanning for chest with Environment Detector...")
+    local chest = findChestWithEnvDetector()
+    
+    if not chest or not chest.x or not chest.z then
+        print("")
+        print("✗ ERROR: No chest found within 5 blocks!")
+        print("")
+        print("Setup:")
+        print("  1. Place chest within 5 blocks of turtle")
+        print("  2. Turtle must be on same Y-level as chest")
+        print("  3. Run miner_v2 again")
+        print("")
+        error("No chest found within 5 blocks")
+    end
+    
+    -- Calculate chest location
+    local cx, cy, cz = chest.x, chest.y or 0, chest.z
+    print(string.format("✓ Chest found at offset: %+d, %+d, %+d", cx, cy, cz))
+    
+    -- Check Y-level
+    if cy ~= 0 then
+        print("")
+        print(string.format("✗ ERROR: Chest is %d block(s) %s!", 
+            math.abs(cy), cy > 0 and "ABOVE" or "BELOW"))
+        print("")
+        print("Setup:")
+        print("  1. Move turtle to same Y-level as chest")
+        print("  2. Or move chest to turtle's Y-level")
+        print("  3. Run miner_v2 again")
+        print("")
+        error("Chest Y-level mismatch")
+    end
+    
+    -- Determine chest direction (X or Z axis dominant)
+    local chestDir
+    if math.abs(cx) > math.abs(cz) then
+        chestDir = cx > 0 and 1 or 3  -- East or West
+        print(string.format("  Chest is to the %s", cx > 0 and "EAST" or "WEST"))
     else
-        print("Environment Detector not found (optional)")
-        print("Using turtle inspection method...")
+        chestDir = cz > 0 and 2 or 0  -- South or North  
+        print(string.format("  Chest is to the %s", cz > 0 and "SOUTH" or "NORTH"))
     end
     
-    -- Fallback: Standard turtle inspection
-    print("Scanning for chest with turtle...")
-    
-    -- Check all 4 horizontal directions for chest
-    local chestDir = nil
-    for dir = 0, 3 do
-        local ok, blockData = turtle.inspect()
-        if ok and blockData.name and string.find(blockData.name, "chest") then
-            chestDir = dir
-            print(string.format("✓ Found chest at direction %d!", dir))
-            break
-        end
+    -- Face away from chest
+    local awayDir = (chestDir + 2) % 4
+    while facing ~= awayDir do
         turtle.turnRight()
+        facing = (facing + 1) % 4
     end
     
-    if chestDir then
-        -- Face away from chest
-        turtle.turnRight()
-        turtle.turnRight()
-        local awayDir = (chestDir + 2) % 4
-        
-        print(string.format("✓ Chest detected! Facing away (direction %d)", awayDir))
-        print(string.format("✓ Auto-configured home: %d, %d, %d", pos.x, pos.y, pos.z))
-        
-        return {
-            x = pos.x,
-            y = pos.y,
-            z = pos.z,
-            facing = awayDir
-        }
-    end
+    local dirNames = {[0]="North", [1]="East", [2]="South", [3]="West"}
+    print(string.format("✓ Facing away: %s", dirNames[awayDir]))
+    print(string.format("✓ Home configured: %d, %d, %d", pos.x, pos.y, pos.z))
+    print("")
     
-    -- Check up and down
-    local ok, blockData = turtle.inspectUp()
-    if ok and blockData.name and string.find(blockData.name, "chest") then
-        print("⚠ Chest is ABOVE! Move turtle down 1 block")
-        return nil
-    end
-    
-    ok, blockData = turtle.inspectDown()
-    if ok and blockData.name and string.find(blockData.name, "chest") then
-        print("⚠ Chest is BELOW! Move turtle up 1 block")
-        return nil
-    end
-    
-    print("✗ No chest found in any direction!")
-    print("Please place chest next to turtle and retry")
-    return nil
+    return {
+        x = pos.x,
+        y = pos.y,
+        z = pos.z,
+        facing = awayDir
+    }
 end
 
 ----------------------------------
@@ -338,112 +299,30 @@ print("")
 local savedHome = loadHomeLocation()
 
 if savedHome then
-    -- Auto-load saved location without prompting
+    -- Auto-load saved location
     homePos = {x=savedHome.x, y=savedHome.y, z=savedHome.z}
     homeFacing = savedHome.facing
     facing = homeFacing
     print(string.format("✓ Loaded home: %d, %d, %d", savedHome.x, savedHome.y, savedHome.z))
-    print(string.format("✓ Facing: %s", ({"north","east","south","west"})[homeFacing+1] or "unknown"))
-    print("(Position check will happen after loading functions...)")
+    print(string.format("✓ Facing: %s", ({"North","East","South","West"})[homeFacing+1] or "unknown"))
     print("")
 else
-    -- First time setup with auto-detection
+    -- First time setup - use Environment Detector
     print("FIRST TIME SETUP")
     print("")
     
-    -- Try auto-detection first
     local detected = detectChestEnvironment()
     
-    if detected then
-        homePos = {x=detected.x, y=detected.y, z=detected.z}
-        homeFacing = detected.facing
-        facing = homeFacing
-        
-        -- Save immediately
-        saveHomeLocation()
-        print("")
-        print("✓ Environment auto-configured and saved!")
-        print("")
-    else
-        -- Fallback to manual setup
-        print("")
-        print("MANUAL SETUP")
-        print("Place chest BEHIND turtle")
-        print("(Turtle should face AWAY from chest)")
-        print("")
-        print("Press ENTER when ready...")
-        read()
-
-        -- Save home position
-        print("Getting home position...")
-        homePos = getPos()
-        print(string.format("✓ Home: %d, %d, %d", homePos.x, homePos.y, homePos.z))
-
-        -- Verify chest
-        print("Verifying chest...")
-        turtle.turnLeft()
-        turtle.turnLeft()
-
-        local ok, chestData = turtle.inspect()
-        if not ok or not string.find(chestData.name or "", "chest") then
-            turtle.turnLeft()
-            turtle.turnLeft()
-            error("ERROR: No chest found behind turtle!")
-        end
-
-        print("✓ Chest detected!")
-        turtle.turnLeft()
-        turtle.turnLeft()
-    end
-end
-
-----------------------------------
--- DETECT FACING DIRECTION
-----------------------------------
-local function detectFacing()
-    local x1, y1, z1 = getPos().x, getPos().y, getPos().z
+    -- detectChestEnvironment() will error if it fails
+    -- So if we reach here, detection succeeded
+    homePos = {x=detected.x, y=detected.y, z=detected.z}
+    homeFacing = detected.facing
+    facing = homeFacing
     
-    -- Try to move forward
-    local moved = false
-    for attempt = 1, 5 do
-        if turtle.forward() then
-            moved = true
-            break
-        end
-        turtle.dig()
-        turtle.attack()
-        sleep(0.3)
-    end
-    
-    if not moved then
-        print("WARNING: Cannot detect facing (blocked)")
-        return 0  -- Default to north
-    end
-    
-    local x2, y2, z2 = getPos().x, getPos().y, getPos().z
-    local dx, dz = x2 - x1, z2 - z1
-    
-    turtle.back()  -- Return to start
-    
-    if dz == -1 then return 0 end     -- North
-    if dx == 1 then return 1 end      -- East
-    if dz == 1 then return 2 end      -- South
-    if dx == -1 then return 3 end     -- West
-    return 0  -- Default
-end
-
--- Only detect facing if first-time setup (no saved home)
-if not homeFacing then
-    print("Detecting facing direction...")
-    facing = detectFacing()
-    homeFacing = facing
-    
-    local dirNames = {[0]="north", [1]="east", [2]="south", [3]="west"}
-    print(string.format("✓ Facing: %s", dirNames[facing]))
-    
-    -- Save the home location with facing
-    saveHomeLocation(homePos, homeFacing)
-    print(string.format("✓ Home saved: %d,%d,%d", homePos.x, homePos.y, homePos.z))
+    -- Save configuration
+    saveHomeLocation()
+    print("✓ Setup complete and saved!")
+    print("")
 end
 
 print("✓ Setup complete")
@@ -1193,132 +1072,60 @@ end
 local function depositToChest()
     print("Depositing to chest...")
     
-    -- First, make sure we're at exact home position
+    -- Ensure we're at exact home position
     local px, py, pz = gps.locate(5)
     if px then
         local currentX, currentY, currentZ = math.floor(px), math.floor(py), math.floor(pz)
         print(string.format("  Current: %d, %d, %d", currentX, currentY, currentZ))
         print(string.format("  Home:    %d, %d, %d", homePos.x, homePos.y, homePos.z))
         
-        -- Check if we need position correction
         if currentX ~= homePos.x or currentY ~= homePos.y or currentZ ~= homePos.z then
             print("  ⚠ Position mismatch! Correcting...")
             moveAbs(homePos.x, homePos.y, homePos.z)
         end
     end
     
-    -- Try to find chest with Environment Detector first
-    print("  Scanning for chest...")
-    local chestFound = false
-    local chestDirection = nil
+    -- Use Environment Detector to find chest
+    print("  Scanning for chest with Environment Detector...")
+    local chest = findChestWithEnvDetector()
     
-    if envDetector then
-        print("  Using Environment Detector for smart chest detection...")
-        local chest = findChestWithEnvDetector()
-        
-        if chest and (chest.x ~= 0 or chest.z ~= 0) then
-            local cx, cz = chest.x, chest.z
-            local cy = chest.y or 0
-            
-            print(string.format("  ✓ Chest at offset: %+d, %+d, %+d", cx, cy, cz))
-            
-            -- Handle Y-level difference first
-            if cy > 0 then
-                print(string.format("  Moving up %d block(s) to chest level...", cy))
-                for i = 1, cy do
-                    tryUp()
-                end
-                homePos.y = homePos.y + cy
-                saveHomeLocation()
-                return depositToChest()  -- Retry at correct level
-            elseif cy < 0 then
-                print(string.format("  Moving down %d block(s) to chest level...", math.abs(cy)))
-                for i = 1, math.abs(cy) do
-                    tryDown()
-                end
-                homePos.y = homePos.y + cy
-                saveHomeLocation()
-                return depositToChest()  -- Retry at correct level
-            end
-            
-            -- Determine horizontal direction to chest
-            if math.abs(cx) > math.abs(cz) then
-                -- X axis dominant
-                if cx > 0 then
-                    chestDirection = 1  -- East
-                    print("  Chest is to the EAST")
-                else
-                    chestDirection = 3  -- West
-                    print("  Chest is to the WEST")
-                end
-            else
-                -- Z axis dominant
-                if cz > 0 then
-                    chestDirection = 2  -- South
-                    print("  Chest is to the SOUTH")
-                else
-                    chestDirection = 0  -- North
-                    print("  Chest is to the NORTH")
-                end
-            end
-            
-            chestFound = true
-        else
-            print("  Environment Detector: No chest found nearby")
-        end
-    end
-    
-    -- Fallback: Scan all 4 directions manually
-    if not chestFound then
-        print("  Scanning manually in 4 directions...")
-        for dir = 0, 3 do
-            turnTo(dir)
-            local ok, blockData = turtle.inspect()
-            if ok and blockData.name and string.find(blockData.name, "chest") then
-                print(string.format("  ✓ Found chest at direction %d", dir))
-                chestFound = true
-                chestDirection = dir
-                break
-            end
-        end
-    end
-    
-    if not chestFound then
-        print("ERROR: Chest not found in any direction!")
-        print("Checking up and down...")
-        
-        -- Check up
-        local ok, blockData = turtle.inspectUp()
-        if ok and blockData.name and string.find(blockData.name, "chest") then
-            print("  ✗ Chest is ABOVE! Y-level wrong!")
-            print("  Moving up 1 block...")
-            tryUp()
-            homePos.y = homePos.y + 1
-            saveHomeLocation()
-            return depositToChest()  -- Retry
-        end
-        
-        -- Check down
-        ok, blockData = turtle.inspectDown()
-        if ok and blockData.name and string.find(blockData.name, "chest") then
-            print("  ✗ Chest is BELOW! Y-level wrong!")
-            print("  Moving down 1 block...")
-            tryDown()
-            homePos.y = homePos.y - 1
-            saveHomeLocation()
-            return depositToChest()  -- Retry
-        end
-        
-        print("Keeping items in inventory...")
-        
-        -- Notify computer
+    if not chest then
+        print("  ✗ ERROR: No chest found!")
+        print("  Keeping items in inventory...")
         rednet.send(COMPUTER_ID, {
             type = "status_update",
             status = "ERROR: No chest at home!",
             position = homePos
         }, PROTOCOL)
-        
         return false
+    end
+    
+    local cx, cy, cz = chest.x, chest.y or 0, chest.z
+    print(string.format("  ✓ Chest at offset: %+d, %+d, %+d", cx, cy, cz))
+    
+    -- Handle Y-level difference
+    if cy > 0 then
+        print(string.format("  Moving up %d block(s) to chest level...", cy))
+        for i = 1, cy do tryUp() end
+        homePos.y = homePos.y + cy
+        saveHomeLocation()
+        return depositToChest()  -- Retry at correct level
+    elseif cy < 0 then
+        print(string.format("  Moving down %d block(s) to chest level...", math.abs(cy)))
+        for i = 1, math.abs(cy) do tryDown() end
+        homePos.y = homePos.y + cy
+        saveHomeLocation()
+        return depositToChest()  -- Retry at correct level
+    end
+    
+    -- Determine chest direction
+    local chestDirection
+    if math.abs(cx) > math.abs(cz) then
+        chestDirection = cx > 0 and 1 or 3  -- East or West
+        print(string.format("  Chest is to the %s", cx > 0 and "EAST" or "WEST"))
+    else
+        chestDirection = cz > 0 and 2 or 0  -- South or North
+        print(string.format("  Chest is to the %s", cz > 0 and "SOUTH" or "NORTH"))
     end
     
     -- Face the chest and update homeFacing
