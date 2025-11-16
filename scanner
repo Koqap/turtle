@@ -282,6 +282,20 @@ local function computePath(start, goal)
 end
 
 ----------------------------------
+-- ORE FILTER STATE (used by GUI and handler)
+----------------------------------
+local oreFilterEnabled = {
+    iron = true,
+    coal = true,
+    gold = true,
+    diamond = true,
+    copper = false,
+    redstone = false,
+    lapis = false,
+    emerald = false,
+}
+
+----------------------------------
 -- MESSAGE PROTOCOL HANDLERS
 ----------------------------------
 local function handleRequest(id, msg)
@@ -309,6 +323,17 @@ local function handleRequest(id, msg)
         
         -- Helper function to check if ore matches filter
         local function matchesFilter(oreName)
+            -- First check GUI filter (if available and in GUI mode)
+            if BASALT and oreFilterEnabled then
+                for oreType, enabled in pairs(oreFilterEnabled) do
+                    if oreName:find(oreType) and enabled then
+                        return true
+                    end
+                end
+                return false
+            end
+            
+            -- Fallback to turtle's filter
             if not oreFilter then return true end  -- No filter = mine all
             for _, filterType in ipairs(oreFilter) do
                 if oreName:find(filterType) then
@@ -505,6 +530,50 @@ if BASALT then
             :setSize(15, 1)
             :setBackground(colors.green)
             :setForeground(colors.white)
+        
+        -- Create ore filter label
+        local filterLabel = main:addLabel()
+            :setText("ORE FILTERS:")
+            :setPosition(20, 2)
+            :setSize(40, 1)
+            :setBackground(colors.black)
+            :setForeground(colors.orange)
+        
+        -- Create ore filter buttons
+        local btnY = 3
+        local btnX = 20
+        local oreButtons = {}
+        
+        local oreTypes = {"iron", "coal", "gold", "diamond", "copper", "redstone", "lapis", "emerald"}
+        
+        for i, oreType in ipairs(oreTypes) do
+            local btn = main:addButton()
+                :setText(string.upper(oreType:sub(1,4)))
+                :setPosition(btnX + ((i-1) % 4) * 8, btnY + math.floor((i-1) / 4))
+                :setSize(7, 1)
+            
+            -- Set initial color
+            if oreFilterEnabled[oreType] then
+                btn:setBackground(colors.lime)
+            else
+                btn:setBackground(colors.red)
+            end
+            btn:setForeground(colors.white)
+            
+            -- Click handler
+            btn:onClick(function()
+                oreFilterEnabled[oreType] = not oreFilterEnabled[oreType]
+                if oreFilterEnabled[oreType] then
+                    btn:setBackground(colors.lime)
+                    addLog("Enabled: " .. oreType)
+                else
+                    btn:setBackground(colors.red)
+                    addLog("Disabled: " .. oreType)
+                end
+            end)
+            
+            oreButtons[oreType] = btn
+        end
         
         -- Scan button click handler (NOW addLog is defined)
         scanButton:onClick(function()
