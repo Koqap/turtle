@@ -234,13 +234,11 @@ local function tryForward()
     
     if turtle.forward() then
         stats.freeMoves = stats.freeMoves + 1
-        -- Update internal position if no GPS
-        if not gps then
-            if facing == 0 then lastKnown.z = lastKnown.z - 1
-            elseif facing == 1 then lastKnown.x = lastKnown.x + 1
-            elseif facing == 2 then lastKnown.z = lastKnown.z + 1
-            elseif facing == 3 then lastKnown.x = lastKnown.x - 1
-            end
+        -- ALWAYS update internal position for dead reckoning
+        if facing == 0 then lastKnown.z = lastKnown.z - 1
+        elseif facing == 1 then lastKnown.x = lastKnown.x + 1
+        elseif facing == 2 then lastKnown.z = lastKnown.z + 1
+        elseif facing == 3 then lastKnown.x = lastKnown.x - 1
         end
         return true
     end
@@ -254,13 +252,11 @@ local function tryForward()
         sleep(0.1)
     end
     
-    -- Update position after successful move
-    if not gps then
-        if facing == 0 then lastKnown.z = lastKnown.z - 1
-        elseif facing == 1 then lastKnown.x = lastKnown.x + 1
-        elseif facing == 2 then lastKnown.z = lastKnown.z + 1
-        elseif facing == 3 then lastKnown.x = lastKnown.x - 1
-        end
+    -- ALWAYS update position after successful move
+    if facing == 0 then lastKnown.z = lastKnown.z - 1
+    elseif facing == 1 then lastKnown.x = lastKnown.x + 1
+    elseif facing == 2 then lastKnown.z = lastKnown.z + 1
+    elseif facing == 3 then lastKnown.x = lastKnown.x - 1
     end
     return true
 end
@@ -270,7 +266,7 @@ local function tryUp()
     
     if turtle.up() then
         stats.freeMoves = stats.freeMoves + 1
-        if not gps then lastKnown.y = lastKnown.y + 1 end
+        lastKnown.y = lastKnown.y + 1  -- Always update for dead reckoning
         return true
     end
     
@@ -282,7 +278,7 @@ local function tryUp()
         sleep(0.1)
     end
     
-    if not gps then lastKnown.y = lastKnown.y + 1 end
+    lastKnown.y = lastKnown.y + 1  -- Always update
     return true
 end
 
@@ -291,7 +287,7 @@ local function tryDown()
     
     if turtle.down() then
         stats.freeMoves = stats.freeMoves + 1
-        if not gps then lastKnown.y = lastKnown.y - 1 end
+        lastKnown.y = lastKnown.y - 1  -- Always update for dead reckoning
         return true
     end
     
@@ -303,7 +299,7 @@ local function tryDown()
         sleep(0.1)
     end
     
-    if not gps then lastKnown.y = lastKnown.y - 1 end
+    lastKnown.y = lastKnown.y - 1  -- Always update
     return true
 end
 
@@ -323,115 +319,106 @@ end
 local function moveAbs(targetX, targetY, targetZ)
     print(string.format("→ Moving to: %d, %d, %d", targetX, targetY, targetZ))
     
-    local pos = getPos()
-    print(string.format("  Starting from: %d, %d, %d", pos.x, pos.y, pos.z))
+    -- Get initial GPS position
+    local x, y, z = gps.locate(5)
+    if x then
+        lastKnown = {x=math.floor(x), y=math.floor(y), z=math.floor(z)}
+    end
+    
+    print(string.format("  Starting from: %d, %d, %d", lastKnown.x, lastKnown.y, lastKnown.z))
     
     local moveCount = 0
     local maxMoves = 500
-    local stuckCount = 0
-    local lastPos = {x=pos.x, y=pos.y, z=pos.z}
     
-    -- Move vertically first
-    while pos.y < targetY and moveCount < maxMoves do
+    -- Move vertically first (use lastKnown for position)
+    while lastKnown.y < targetY and moveCount < maxMoves do
         tryUp()
-        pos = getPos()
         moveCount = moveCount + 1
-        
-        -- Check if stuck
-        if pos.y == lastPos.y and moveCount % 10 == 0 then
-            stuckCount = stuckCount + 1
-            if stuckCount > 3 then
-                print(string.format("  WARNING: Stuck at Y=%d", pos.y))
-                break
-            end
-        end
-        lastPos.y = pos.y
     end
     
     moveCount = 0
-    stuckCount = 0
-    while pos.y > targetY and moveCount < maxMoves do
+    while lastKnown.y > targetY and moveCount < maxMoves do
         tryDown()
-        pos = getPos()
         moveCount = moveCount + 1
-        
-        -- Check if stuck
-        if pos.y == lastPos.y and moveCount % 10 == 0 then
-            stuckCount = stuckCount + 1
-            if stuckCount > 3 then
-                print(string.format("  WARNING: Stuck at Y=%d", pos.y))
-                break
-            end
-        end
-        lastPos.y = pos.y
     end
     
     -- Move on X axis
-    if pos.x < targetX then turnTo(1) end  -- East
-    if pos.x > targetX then turnTo(3) end  -- West
+    local xDiff = targetX - lastKnown.x
+    if xDiff > 0 then 
+        turnTo(1)  -- East
+        print(string.format("  Moving East %d blocks...", xDiff))
+    elseif xDiff < 0 then 
+        turnTo(3)  -- West
+        print(string.format("  Moving West %d blocks...", math.abs(xDiff)))
+    end
     
     moveCount = 0
-    stuckCount = 0
-    while pos.x ~= targetX and moveCount < maxMoves do
+    while lastKnown.x ~= targetX and moveCount < maxMoves do
         tryForward()
-        pos = getPos()
         moveCount = moveCount + 1
         
         -- Progress update every 10 blocks
         if moveCount % 10 == 0 then
-            print(string.format("  X: %d/%d", pos.x, targetX))
+            print(string.format("  X progress: %d", moveCount))
         end
         
-        -- Check if stuck
-        if pos.x == lastPos.x and moveCount % 10 == 0 then
-            stuckCount = stuckCount + 1
-            if stuckCount > 3 then
-                print(string.format("  WARNING: Stuck at X=%d", pos.x))
-                break
-            end
+        -- Safety: If we've moved expected distance, stop
+        if math.abs(xDiff) > 0 and moveCount >= math.abs(xDiff) + 5 then
+            print("  X: Reached expected distance")
+            break
         end
-        lastPos.x = pos.x
     end
     
     -- Move on Z axis
-    if pos.z < targetZ then turnTo(2) end  -- South
-    if pos.z > targetZ then turnTo(0) end  -- North
+    local zDiff = targetZ - lastKnown.z
+    if zDiff > 0 then 
+        turnTo(2)  -- South
+        print(string.format("  Moving South %d blocks...", zDiff))
+    elseif zDiff < 0 then 
+        turnTo(0)  -- North
+        print(string.format("  Moving North %d blocks...", math.abs(zDiff)))
+    end
     
     moveCount = 0
-    stuckCount = 0
-    while pos.z ~= targetZ and moveCount < maxMoves do
+    while lastKnown.z ~= targetZ and moveCount < maxMoves do
         tryForward()
-        pos = getPos()
         moveCount = moveCount + 1
         
         -- Progress update every 10 blocks
         if moveCount % 10 == 0 then
-            print(string.format("  Z: %d/%d", pos.z, targetZ))
+            print(string.format("  Z progress: %d", moveCount))
         end
         
-        -- Check if stuck
-        if pos.z == lastPos.z and moveCount % 10 == 0 then
-            stuckCount = stuckCount + 1
-            if stuckCount > 3 then
-                print(string.format("  WARNING: Stuck at Z=%d", pos.z))
-                break
-            end
+        -- Safety: If we've moved expected distance, stop
+        if math.abs(zDiff) > 0 and moveCount >= math.abs(zDiff) + 5 then
+            print("  Z: Reached expected distance")
+            break
         end
-        lastPos.z = pos.z
     end
     
-    -- Final position check
-    pos = getPos()
-    local distance = math.abs(pos.x - targetX) + math.abs(pos.y - targetY) + math.abs(pos.z - targetZ)
-    
-    if distance == 0 then
-        print(string.format("✓ Arrived at: %d, %d, %d", pos.x, pos.y, pos.z))
-        return true
+    -- Final GPS check
+    print("Verifying final position with GPS...")
+    local fx, fy, fz = gps.locate(5)
+    if fx then
+        lastKnown = {x=math.floor(fx), y=math.floor(fy), z=math.floor(fz)}
+        local distance = math.abs(lastKnown.x - targetX) + math.abs(lastKnown.y - targetY) + math.abs(lastKnown.z - targetZ)
+        
+        if distance == 0 then
+            print(string.format("✓ Arrived at: %d, %d, %d", lastKnown.x, lastKnown.y, lastKnown.z))
+            return true
+        elseif distance <= 2 then
+            print(string.format("✓ Close enough: %d, %d, %d (distance: %d)", lastKnown.x, lastKnown.y, lastKnown.z, distance))
+            return true
+        else
+            print(string.format("⚠ Off by %d blocks", distance))
+            print(string.format("  Current: %d, %d, %d", lastKnown.x, lastKnown.y, lastKnown.z))
+            print(string.format("  Target: %d, %d, %d", targetX, targetY, targetZ))
+            return false
+        end
     else
-        print(string.format("⚠ Close but not exact. Distance: %d blocks", distance))
-        print(string.format("  Current: %d, %d, %d", pos.x, pos.y, pos.z))
-        print(string.format("  Target: %d, %d, %d", targetX, targetY, targetZ))
-        return false
+        print("⚠ GPS unavailable for final check")
+        print("  Assuming arrived based on movement count")
+        return true
     end
 end
 
