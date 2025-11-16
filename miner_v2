@@ -135,6 +135,15 @@ end
 ----------------------------------
 local envDetector = peripheral.wrap("environment_detector_1")
 
+if envDetector then
+    print("✓ Environment Detector found: environment_detector_1")
+    print("  Smart chest detection enabled!")
+else
+    print("⚠ Environment Detector not found")
+    print("  Using basic turtle.inspect() method")
+end
+print("")
+
 local function scanBlocksWithEnvDetector(radius)
     if not envDetector then return nil end
     
@@ -1198,19 +1207,79 @@ local function depositToChest()
         end
     end
     
-    -- Scan all 4 directions to find chest
+    -- Try to find chest with Environment Detector first
     print("  Scanning for chest...")
     local chestFound = false
     local chestDirection = nil
     
-    for dir = 0, 3 do
-        turnTo(dir)
-        local ok, blockData = turtle.inspect()
-        if ok and blockData.name and string.find(blockData.name, "chest") then
-            print(string.format("  ✓ Found chest at direction %d", dir))
+    if envDetector then
+        print("  Using Environment Detector for smart chest detection...")
+        local chest = findChestWithEnvDetector()
+        
+        if chest and (chest.x ~= 0 or chest.z ~= 0) then
+            local cx, cz = chest.x, chest.z
+            local cy = chest.y or 0
+            
+            print(string.format("  ✓ Chest at offset: %+d, %+d, %+d", cx, cy, cz))
+            
+            -- Handle Y-level difference first
+            if cy > 0 then
+                print(string.format("  Moving up %d block(s) to chest level...", cy))
+                for i = 1, cy do
+                    tryUp()
+                end
+                homePos.y = homePos.y + cy
+                saveHomeLocation()
+                return depositToChest()  -- Retry at correct level
+            elseif cy < 0 then
+                print(string.format("  Moving down %d block(s) to chest level...", math.abs(cy)))
+                for i = 1, math.abs(cy) do
+                    tryDown()
+                end
+                homePos.y = homePos.y + cy
+                saveHomeLocation()
+                return depositToChest()  -- Retry at correct level
+            end
+            
+            -- Determine horizontal direction to chest
+            if math.abs(cx) > math.abs(cz) then
+                -- X axis dominant
+                if cx > 0 then
+                    chestDirection = 1  -- East
+                    print("  Chest is to the EAST")
+                else
+                    chestDirection = 3  -- West
+                    print("  Chest is to the WEST")
+                end
+            else
+                -- Z axis dominant
+                if cz > 0 then
+                    chestDirection = 2  -- South
+                    print("  Chest is to the SOUTH")
+                else
+                    chestDirection = 0  -- North
+                    print("  Chest is to the NORTH")
+                end
+            end
+            
             chestFound = true
-            chestDirection = dir
-            break
+        else
+            print("  Environment Detector: No chest found nearby")
+        end
+    end
+    
+    -- Fallback: Scan all 4 directions manually
+    if not chestFound then
+        print("  Scanning manually in 4 directions...")
+        for dir = 0, 3 do
+            turnTo(dir)
+            local ok, blockData = turtle.inspect()
+            if ok and blockData.name and string.find(blockData.name, "chest") then
+                print(string.format("  ✓ Found chest at direction %d", dir))
+                chestFound = true
+                chestDirection = dir
+                break
+            end
         end
     end
     
