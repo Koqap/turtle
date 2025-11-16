@@ -427,40 +427,6 @@ if BASALT then
             :setBackground(colors.black)
             :setForeground(colors.white)
         
-        -- Create scan button
-        local scanButton = main:addButton()
-            :setText("SCAN NOW")
-            :setPosition(2, 3)
-            :setSize(15, 1)
-            :setBackground(colors.green)
-            :setForeground(colors.white)
-        
-        -- Scan button click handler
-        scanButton:onClick(function()
-            addLog(">>> SCAN STARTED <<<")
-            updateDisplay()
-            
-            local scan = doScan(SCAN_RADIUS)
-            addLog(string.format("Scanned %d blocks", #scan))
-            
-            if #scan == 0 then
-                addLog("ERROR: Geo scanner failed!")
-                addLog("Check geo_scanner_1 connection")
-            else
-                local beforeOres = #mapData.ores
-                addOresFromScan(scan, 0, 0, 0)
-                local afterOres = #mapData.ores
-                addLog(string.format("Found %d ores total", afterOres))
-                
-                if afterOres == beforeOres then
-                    addLog("No NEW ores in scan area")
-                else
-                    addLog(string.format("Added %d new ores!", afterOres - beforeOres))
-                end
-            end
-            updateDisplay()
-        end)
-        
         -- Create log label
         local logLabel = main:addLabel()
             :setText("Activity Log:")
@@ -469,6 +435,7 @@ if BASALT then
             :setBackground(colors.black)
             :setForeground(colors.lightGray)
         
+        -- Define log buffer and addLog function FIRST
         local logBuffer = {}
         local maxLogLines = 4
         
@@ -480,7 +447,7 @@ if BASALT then
             logLabel:setText("Activity Log:\n" .. table.concat(logBuffer, "\n"))
         end
         
-        -- Update display function
+        -- Define updateDisplay function BEFORE button
         local function updateDisplay()
             -- Update status
             statusLabel:setText(string.format(
@@ -515,6 +482,40 @@ if BASALT then
             
             oreListLabel:setText(table.concat(oreText, "\n"))
         end
+        
+        -- Create scan button
+        local scanButton = main:addButton()
+            :setText("SCAN NOW")
+            :setPosition(2, 3)
+            :setSize(15, 1)
+            :setBackground(colors.green)
+            :setForeground(colors.white)
+        
+        -- Scan button click handler (NOW addLog is defined)
+        scanButton:onClick(function()
+            addLog(">>> SCAN STARTED <<<")
+            updateDisplay()
+            
+            local scan = doScan(SCAN_RADIUS)
+            addLog(string.format("Scanned %d blocks", #scan))
+            
+            if #scan == 0 then
+                addLog("ERROR: Geo scanner failed!")
+                addLog("Check geo_scanner_1 connection")
+            else
+                local beforeOres = #mapData.ores
+                addOresFromScan(scan, 0, 0, 0)
+                local afterOres = #mapData.ores
+                addLog(string.format("Found %d ores total", afterOres))
+                
+                if afterOres == beforeOres then
+                    addLog("No NEW ores in scan area")
+                else
+                    addLog(string.format("Added %d new ores!", afterOres - beforeOres))
+                end
+            end
+            updateDisplay()
+        end)
         
         -- Initialize
         addLog("SmartMiner initialized")
