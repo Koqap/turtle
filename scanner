@@ -413,64 +413,46 @@ if BASALT then
             end
         end
         
-        -- Render function - draw everything to terminal directly
+        -- Render function - build text and update label
         local function updateDisplay()
-            term.redirect(main:getMonitor())
-            term.setBackgroundColor(colors.black)
-            term.clear()
+            local output = {}
             
             -- Title
-            term.setCursorPos(1, 1)
-            term.setBackgroundColor(colors.blue)
-            term.setTextColor(colors.white)
-            term.clearLine()
-            term.write(" SMARTMINER COMPUTER BRAIN")
-            
-            -- Status line
-            term.setCursorPos(1, 2)
-            term.setBackgroundColor(colors.gray)
-            term.setTextColor(colors.yellow)
-            term.clearLine()
-            term.write(string.format(" ID:%d | Protocol:%s | Ores:%d | Press Q=Quit", 
+            table.insert(output, "=== SMARTMINER COMPUTER BRAIN ===")
+            table.insert(output, string.format("ID:%d | Protocol:%s | Ores:%d", 
                 COMPUTER_ID, PROTOCOL, #mapData.ores))
+            table.insert(output, "Press Q to quit")
+            table.insert(output, "")
+            table.insert(output, "Tracked Ores: " .. #mapData.ores)
+            table.insert(output, string.rep("-", 40))
             
             -- Ore list
-            term.setBackgroundColor(colors.black)
-            term.setTextColor(colors.white)
-            term.setCursorPos(1, 4)
-            term.write("Tracked Ores: " .. #mapData.ores)
-            
-            local line = 5
-            local maxDisplay = 20
+            local maxDisplay = 15
             for i = 1, math.min(maxDisplay, #mapData.ores) do
                 local o = mapData.ores[i]
                 local oreName = o.name:match("(%w+)_ore") or "ore"
                 local status = o.claimed and "[C]" or "[ ]"
-                term.setCursorPos(1, line)
-                term.write(string.format("%s %s at %d,%d,%d", 
+                table.insert(output, string.format("%s %s at %d,%d,%d", 
                     status, oreName, o.x, o.y, o.z))
-                line = line + 1
             end
             
             if #mapData.ores > maxDisplay then
-                term.setCursorPos(1, line)
-                term.write(string.format("...and %d more", #mapData.ores - maxDisplay))
-                line = line + 1
+                table.insert(output, string.format("...and %d more ores", #mapData.ores - maxDisplay))
+            end
+            
+            if #mapData.ores == 0 then
+                table.insert(output, "(No ores found yet)")
             end
             
             -- Log area
-            term.setCursorPos(1, 28)
-            term.setBackgroundColor(colors.gray)
-            term.setTextColor(colors.lightGray)
-            term.clearLine()
-            term.write(" Activity Log:")
-            term.setBackgroundColor(colors.black)
-            for i, log in ipairs(logBuffer) do
-                term.setCursorPos(1, 28 + i)
-                term.write(" " .. log)
+            table.insert(output, "")
+            table.insert(output, "Activity Log:")
+            for _, log in ipairs(logBuffer) do
+                table.insert(output, "  " .. log)
             end
             
-            term.setBackgroundColor(colors.black)
+            -- Update display label
+            display:setText(table.concat(output, "\n"))
         end
         
         -- Initial update
