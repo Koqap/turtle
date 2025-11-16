@@ -390,123 +390,140 @@ if BASALT then
         print("")
         BASALT = false
     else
-        -- Get main frame (Basalt v2 API)
+        -- Get main frame
         local main = basalt.getMainFrame()
-        main:setBackground(colors.black)
         
-        local mapW, mapH = 45, 18
+        -- Create title label
+        local titleLabel = main:addLabel()
+            :setText("SMARTMINER COMPUTER BRAIN")
+            :setPosition(1, 1)
+            :setSize("parent.w", 1)
+            :setBackground(colors.blue)
+            :setForeground(colors.white)
         
-        -- Create single label for all content
-        local display = main:addLabel()
-        display:setPosition(1, 1)
-        display:setSize(51, 30)
-        display:setBackground(colors.black)
-        display:setForeground(colors.white)
+        -- Create status label
+        local statusLabel = main:addLabel()
+            :setText("Initializing...")
+            :setPosition(1, 2)
+            :setSize("parent.w", 1)
+            :setBackground(colors.gray)
+            :setForeground(colors.yellow)
+        
+        -- Create ore list label
+        local oreListLabel = main:addLabel()
+            :setText("Loading...")
+            :setPosition(1, 4)
+            :setSize("parent.w", 20)
+            :setBackground(colors.black)
+            :setForeground(colors.white)
+        
+        -- Create log label
+        local logLabel = main:addLabel()
+            :setText("Activity Log:")
+            :setPosition(1, 25)
+            :setSize("parent.w", 6)
+            :setBackground(colors.black)
+            :setForeground(colors.lightGray)
         
         local logBuffer = {}
-        local maxLogLines = 3
+        local maxLogLines = 4
         
         local function addLog(text)
-            table.insert(logBuffer, text)
+            table.insert(logBuffer, os.date("[%H:%M:%S] ") .. text)
             if #logBuffer > maxLogLines then
                 table.remove(logBuffer, 1)
             end
+            logLabel:setText("Activity Log:\n" .. table.concat(logBuffer, "\n"))
         end
         
-        -- Render function - build text and update label
+        -- Update display function
         local function updateDisplay()
-            local output = {}
+            -- Update status
+            statusLabel:setText(string.format(
+                " ID:%d | Protocol:%s | Ores:%d | Press Q to quit",
+                COMPUTER_ID, PROTOCOL, #mapData.ores
+            ))
             
-            -- Title
-            table.insert(output, "=== SMARTMINER COMPUTER BRAIN ===")
-            table.insert(output, string.format("ID:%d | Protocol:%s | Ores:%d", 
-                COMPUTER_ID, PROTOCOL, #mapData.ores))
-            table.insert(output, "Press Q to quit")
-            table.insert(output, "")
-            table.insert(output, "Tracked Ores: " .. #mapData.ores)
-            table.insert(output, string.rep("-", 40))
-            
-            -- Ore list
-            local maxDisplay = 15
-            for i = 1, math.min(maxDisplay, #mapData.ores) do
-                local o = mapData.ores[i]
-                local oreName = o.name:match("(%w+)_ore") or "ore"
-                local status = o.claimed and "[C]" or "[ ]"
-                table.insert(output, string.format("%s %s at %d,%d,%d", 
-                    status, oreName, o.x, o.y, o.z))
-            end
-            
-            if #mapData.ores > maxDisplay then
-                table.insert(output, string.format("...and %d more ores", #mapData.ores - maxDisplay))
-            end
+            -- Update ore list
+            local oreText = {}
+            table.insert(oreText, "Tracked Ores: " .. #mapData.ores)
+            table.insert(oreText, string.rep("-", 40))
             
             if #mapData.ores == 0 then
-                table.insert(output, "(No ores found yet)")
+                table.insert(oreText, "(No ores discovered yet)")
+                table.insert(oreText, "")
+                table.insert(oreText, "Waiting for turtle scan requests...")
+            else
+                local maxDisplay = 15
+                for i = 1, math.min(maxDisplay, #mapData.ores) do
+                    local o = mapData.ores[i]
+                    local oreName = o.name:match("(%w+)_ore") or "ore"
+                    local status = o.claimed and "[CLAIMED]" or "[  OPEN  ]"
+                    table.insert(oreText, string.format("%s %s at %d,%d,%d", 
+                        status, oreName, o.x, o.y, o.z))
+                end
+                
+                if #mapData.ores > maxDisplay then
+                    table.insert(oreText, "")
+                    table.insert(oreText, string.format("...and %d more ores tracked", #mapData.ores - maxDisplay))
+                end
             end
             
-            -- Log area
-            table.insert(output, "")
-            table.insert(output, "Activity Log:")
-            for _, log in ipairs(logBuffer) do
-                table.insert(output, "  " .. log)
-            end
-            
-            -- Update display label
-            display:setText(table.concat(output, "\n"))
+            oreListLabel:setText(table.concat(oreText, "\n"))
         end
         
-        -- Initial update
-        updateDisplay()
-        addLog("SmartMiner started")
+        -- Initialize
+        addLog("SmartMiner initialized")
         addLog(string.format("Computer ID: %d", COMPUTER_ID))
+        updateDisplay()
         
-        -- Schedule periodic updates using basalt.schedule
+        -- Background thread: Update display
         basalt.schedule(function()
             while true do
                 updateDisplay()
-                sleep(1)
+                sleep(2)
             end
         end)
         
-        -- Schedule rednet listener
+        -- Background thread: Handle rednet requests
         basalt.schedule(function()
             while true do
-                local senderId, message = rednet.receive(PROTOCOL, 0.5)
-                if senderId then
-                    addLog(string.format("< Turtle %d: %s", senderId, message.type or "?"))
+                local senderId, message = rednet.receive(PROTOCOL, 1)
+                if senderId and message then
+                    addLog(string.format("Turtle %d: %s", senderId, message.type or "unknown"))
                     handleRequest(senderId, message)
                     updateDisplay()
                 end
             end
         end)
         
-        -- Schedule auto-save
+        -- Background thread: Auto-save
         basalt.schedule(function()
             while true do
                 sleep(AUTO_SAVE_INTERVAL)
                 saveMap()
-                addLog(string.format("Map saved (%d ores)", #mapData.ores))
+                addLog("Map auto-saved")
             end
         end)
         
-        -- Event handler for quit
+        -- Background thread: Keyboard handler
         basalt.schedule(function()
             while true do
                 local event, key = os.pullEvent("key")
                 if key == keys.q then
-                    saveMap()
                     addLog("Shutting down...")
-                    sleep(0.5)
+                    saveMap()
+                    sleep(1)
                     basalt.stop()
                     break
                 end
             end
         end)
         
-        print("Basalt GUI starting... Press Q to quit.")
+        print("Basalt GUI initialized. Press Q to quit.")
         
-        -- Start Basalt - use run() instead of autoUpdate()
-        basalt.run()
+        -- Start Basalt main loop
+        basalt.autoUpdate()
     end
 end
 
