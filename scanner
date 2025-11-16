@@ -7,7 +7,7 @@
 local scannerSide = "right"          -- side where geo scanner is attached
 local modemSide = "left"             -- side where wireless modem is attached
 local BASALT = true                  -- set true if Basalt installed (v2 API)
-local SCAN_RADIUS = 8                -- scanner radius
+local SCAN_RADIUS = 16               -- scanner radius (16 = 33x33x33 area)
 local AUTO_SAVE_INTERVAL = 30        -- seconds
 local PROTOCOL = "smartminer"        -- rednet protocol
 
