@@ -404,14 +404,14 @@ if BASALT then
         title:setForeground(colors.white)
         
         -- Map display (left side)
-        local mapBox = main:addTextbox()
+        local mapBox = main:addLabel()
         mapBox:setPosition(1, 2)
         mapBox:setSize(mapW, mapH)
         mapBox:setBackground(colors.black)
         mapBox:setForeground(colors.white)
         
         -- Info panel (right side)
-        local infoBox = main:addTextbox()
+        local infoBox = main:addLabel()
         infoBox:setPosition(mapW + 2, 2)
         infoBox:setSize(23, mapH)
         infoBox:setBackground(colors.gray)
@@ -425,7 +425,7 @@ if BASALT then
         statusBar:setForeground(colors.yellow)
         
         -- Log area
-        local logBox = main:addTextbox()
+        local logBox = main:addLabel()
         logBox:setPosition(1, mapH + 3)
         logBox:setSize(mapW + 25, 7)
         logBox:setBackground(colors.black)
