@@ -113,6 +113,15 @@ local mapData = {
     home = {x=0,y=0,z=0},
 }
 
+-- Chest scan statistics (for monitoring)
+local chestScanStats = {
+    totalRequests = 0,
+    successfulScans = 0,
+    failedScans = 0,
+    lastRequest = nil,
+    lastResult = nil
+}
+
 ----------------------------------
 -- HELPERS
 ----------------------------------
@@ -667,9 +676,16 @@ local function handleRequest(id, msg)
         }, PROTOCOL)
 
     elseif msg.type == "request_chest_scan" then
-        print(string.format("[%s] Chest scan request from turtle %d", os.time(), id))
+        print("")
+        print("═══════════════════════════════════════════════")
+        print(string.format("[%s] CHEST SCAN REQUEST from turtle %d", os.time(), id))
+        print("═══════════════════════════════════════════════")
         local turtleX, turtleY, turtleZ = msg.x or 0, msg.y or 0, msg.z or 0
-        print(string.format("  Scanning near position: %d, %d, %d", turtleX, turtleY, turtleZ))
+        print(string.format("  Turtle position: %d, %d, %d", turtleX, turtleY, turtleZ))
+        
+        -- Update stats
+        chestScanStats.totalRequests = chestScanStats.totalRequests + 1
+        chestScanStats.lastRequest = string.format("T%d at %d,%d,%d", id, turtleX, turtleY, turtleZ)
         
         -- Update turtle tracking
         updateTurtle(id, {
@@ -678,7 +694,11 @@ local function handleRequest(id, msg)
         })
         
         if not envDetector then
-            print("  ✗ Environment Detector not available!")
+            print("  ✗ ERROR: Environment Detector not available!")
+            print("  ✗ Cannot scan for chests!")
+            print("")
+            chestScanStats.failedScans = chestScanStats.failedScans + 1
+            chestScanStats.lastResult = "FAILED: No EnvDet"
             rednet.send(id, {
                 type = "chest_scan_result",
                 success = false,
@@ -686,6 +706,9 @@ local function handleRequest(id, msg)
             }, PROTOCOL)
             return
         end
+        
+        print("  ✓ Environment Detector available")
+        print(string.format("  ✓ Scanner position: %d, %d, %d", SCANNER_X, SCANNER_Y, SCANNER_Z))
         
         -- Use Environment Detector to scan for chests
         -- Scanner's Environment Detector scans relative to SCANNER position
@@ -696,12 +719,17 @@ local function handleRequest(id, msg)
         
         print(string.format("  Scan offset from scanner: %d, %d, %d", scanOffsetX, scanOffsetY, scanOffsetZ))
         
-        -- Scan 10 block radius (should cover turtle + 5 block chest range)
+        -- Scan 15 block radius (should cover turtle + 5 block chest range)
         local scanRadius = 15
+        print(string.format("  Scanning with Environment Detector (radius: %d)...", scanRadius))
+        
         local ok, blocks = pcall(function() return envDetector.scan(scanRadius) end)
         
         if not ok or not blocks then
-            print("  ✗ Environment Detector scan failed!")
+            print("  ✗ ERROR: Environment Detector scan failed!")
+            print("  Error:", blocks)
+            chestScanStats.failedScans = chestScanStats.failedScans + 1
+            chestScanStats.lastResult = "FAILED: Scan error"
             rednet.send(id, {
                 type = "chest_scan_result",
                 success = false,
@@ -710,7 +738,7 @@ local function handleRequest(id, msg)
             return
         end
         
-        print(string.format("  Scanned %d blocks", #blocks))
+        print(string.format("  ✓ Scanned %d blocks successfully", #blocks))
         
         -- Find chests in scan results
         local chests = {}
@@ -740,6 +768,9 @@ local function handleRequest(id, msg)
         
         if #chests == 0 then
             print("  ✗ No chests found near turtle!")
+            print(string.format("  ✗ Scanned %d blocks, 0 chests within 10 blocks of turtle", #blocks))
+            chestScanStats.failedScans = chestScanStats.failedScans + 1
+            chestScanStats.lastResult = "FAILED: No chest"
             rednet.send(id, {
                 type = "chest_scan_result",
                 success = false,
@@ -752,8 +783,14 @@ local function handleRequest(id, msg)
         table.sort(chests, function(a, b) return a.distance < b.distance end)
         local closest = chests[1]
         
-        print(string.format("  ✓ Closest chest: %d, %d, %d (distance: %d blocks)", 
-            closest.x, closest.y, closest.z, closest.distance))
+        print(string.format("  ✓ SUCCESS: Found %d chest(s)", #chests))
+        print(string.format("  ✓ Closest: %s at %d, %d, %d", closest.name, closest.x, closest.y, closest.z))
+        print(string.format("  ✓ Distance: %d blocks from turtle", closest.distance))
+        print("═══════════════════════════════════════════════")
+        print("")
+        
+        chestScanStats.successfulScans = chestScanStats.successfulScans + 1
+        chestScanStats.lastResult = string.format("OK: %d,%d,%d", closest.x, closest.y, closest.z)
         
         rednet.send(id, {
             type = "chest_scan_result",
@@ -946,6 +983,8 @@ if BASALT then
             local oldTerm = term.redirect(monitor)
             term.clear()
             term.setCursorPos(1, 1)
+            term.setBackgroundColor(colors.black)
+            term.setTextColor(colors.white)
             
             -- Header
             term.setTextColor(colors.yellow)
@@ -972,21 +1011,29 @@ if BASALT then
             term.write(string.format("Ores Tracked: %d | System: %s", 
                 #mapData.ores, systemRunning and "RUNNING" or "STOPPED"))
             
+            -- Chest scan statistics
+            term.setCursorPos(1, 6)
+            term.setTextColor(colors.cyan)
+            term.write(string.format("Chest Scans: %d/%d (%d failed)", 
+                chestScanStats.successfulScans, 
+                chestScanStats.totalRequests,
+                chestScanStats.failedScans))
+            
             -- Turtle list
-            term.setCursorPos(1, 7)
+            term.setCursorPos(1, 8)
             term.setTextColor(colors.lime)
             term.write("ACTIVE TURTLES:")
-            term.write(string.rep("=", mw - 15))
+            term.write(string.rep("=", mw - 16))
             
             local turtleCount = 0
             for _ in pairs(turtles) do turtleCount = turtleCount + 1 end
             
             if turtleCount == 0 then
-                term.setCursorPos(1, 8)
+                term.setCursorPos(1, 9)
                 term.setTextColor(colors.gray)
                 term.write("No turtles connected")
             else
-                local line = 8
+                local line = 9
                 for id, t in pairs(turtles) do
                     if line >= mh - 2 then break end  -- Don't overflow monitor
                     
@@ -1038,12 +1085,13 @@ if BASALT then
         
         -- Define updateDisplay function BEFORE button
         local function updateDisplay()
-            -- Update status with environment detector info
+            -- Update status with environment detector info and chest scans
             local envStatus = envDetector and "EnvDet:OK" or "EnvDet:NO"
             local scannerStatus = scanner and "Geo:OK" or "Geo:NO"
+            local chestScans = string.format("Chests:%d/%d", chestScanStats.successfulScans, chestScanStats.totalRequests)
             statusLabel:setText(string.format(
-                " ID:%d | %s | %s | Ores:%d | Range:%d | Q=Quit",
-                COMPUTER_ID, scannerStatus, envStatus, #mapData.ores, MAX_MINING_RANGE
+                " ID:%d | %s | %s | %s | Ores:%d | Q=Quit",
+                COMPUTER_ID, scannerStatus, envStatus, chestScans, #mapData.ores
             ))
             
             -- Update ore list
@@ -1065,6 +1113,19 @@ if BASALT then
                 
                 if #mapData.ores > maxDisplay then
                     table.insert(oreText, string.format("+%d more", #mapData.ores - maxDisplay))
+                end
+            end
+            
+            -- Add chest scan stats to ore display
+            if chestScanStats.totalRequests > 0 then
+                table.insert(oreText, "")
+                table.insert(oreText, "━━━ CHEST SCANS ━━━")
+                table.insert(oreText, string.format("Total: %d | Success: %d | Failed: %d", 
+                    chestScanStats.totalRequests, 
+                    chestScanStats.successfulScans, 
+                    chestScanStats.failedScans))
+                if chestScanStats.lastResult then
+                    table.insert(oreText, "Last: " .. chestScanStats.lastResult)
                 end
             end
             
