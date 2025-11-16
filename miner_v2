@@ -363,36 +363,74 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
     while lastKnown.y < targetY and moveCount < maxMoves do
         tryUp()
         moveCount = moveCount + 1
+        
+        -- GPS check every 5 blocks to correct drift
+        if moveCount % 5 == 0 then
+            local gx, gy, gz = gps.locate(5)
+            if gx then
+                lastKnown = {x=math.floor(gx), y=math.floor(gy), z=math.floor(gz)}
+                print(string.format("  Y progress: Up %d (GPS: %d, %d, %d)", moveCount, lastKnown.x, lastKnown.y, lastKnown.z))
+            end
+        end
     end
     
     moveCount = 0
     while lastKnown.y > targetY and moveCount < maxMoves do
         tryDown()
         moveCount = moveCount + 1
+        
+        -- GPS check every 5 blocks to correct drift
+        if moveCount % 5 == 0 then
+            local gx, gy, gz = gps.locate(5)
+            if gx then
+                lastKnown = {x=math.floor(gx), y=math.floor(gy), z=math.floor(gz)}
+                print(string.format("  Y progress: Down %d (GPS: %d, %d, %d)", moveCount, lastKnown.x, lastKnown.y, lastKnown.z))
+            end
+        end
     end
     
     -- Move on X axis with smart obstacle avoidance
-    local xDiff = targetX - lastKnown.x
-    if xDiff > 0 then 
-        turnTo(1)  -- East
-        print(string.format("  Moving East %d blocks...", xDiff))
-    elseif xDiff < 0 then 
-        turnTo(3)  -- West
-        print(string.format("  Moving West %d blocks...", math.abs(xDiff)))
-    end
-    
     moveCount = 0
     local failCount = 0
     while lastKnown.x ~= targetX and moveCount < maxMoves do
+        -- Recalculate direction based on current position
+        local xDiff = targetX - lastKnown.x
+        if xDiff > 0 then 
+            turnTo(1)  -- East
+            if moveCount == 0 then
+                print(string.format("  Moving East %d blocks...", xDiff))
+            end
+        elseif xDiff < 0 then 
+            turnTo(3)  -- West
+            if moveCount == 0 then
+                print(string.format("  Moving West %d blocks...", math.abs(xDiff)))
+            end
+        else
+            break  -- Already at target X
+        end
+        
         local success = tryForward()
         
         if success then
             moveCount = moveCount + 1
             failCount = 0  -- Reset fail count on success
             
-            -- Progress update every 10 blocks
-            if moveCount % 10 == 0 then
-                print(string.format("  X progress: %d", moveCount))
+            -- GPS check every 5 blocks to correct drift
+            if moveCount % 5 == 0 then
+                local gx, gy, gz = gps.locate(5)
+                if gx then
+                    local oldPos = lastKnown
+                    lastKnown = {x=math.floor(gx), y=math.floor(gy), z=math.floor(gz)}
+                    local remaining = math.abs(targetX - lastKnown.x)
+                    print(string.format("  X progress: %d (GPS: %d, %d, %d) - %d blocks to go", moveCount, lastKnown.x, lastKnown.y, lastKnown.z, remaining))
+                    
+                    -- Check if we need to change direction
+                    if (oldPos.x < targetX) ~= (lastKnown.x < targetX) then
+                        print("  ⚠ Correcting direction...")
+                    end
+                else
+                    print(string.format("  X progress: %d", moveCount))
+                end
             end
         else
             -- Failed to move forward (e.g., hit chest or unbreakable)
@@ -431,27 +469,47 @@ local function moveAbs(targetX, targetY, targetZ, _depth)
     end
     
     -- Move on Z axis with smart obstacle avoidance
-    local zDiff = targetZ - lastKnown.z
-    if zDiff > 0 then 
-        turnTo(2)  -- South
-        print(string.format("  Moving South %d blocks...", zDiff))
-    elseif zDiff < 0 then 
-        turnTo(0)  -- North
-        print(string.format("  Moving North %d blocks...", math.abs(zDiff)))
-    end
-    
     moveCount = 0
     failCount = 0
     while lastKnown.z ~= targetZ and moveCount < maxMoves do
+        -- Recalculate direction based on current position
+        local zDiff = targetZ - lastKnown.z
+        if zDiff > 0 then 
+            turnTo(2)  -- South
+            if moveCount == 0 then
+                print(string.format("  Moving South %d blocks...", zDiff))
+            end
+        elseif zDiff < 0 then 
+            turnTo(0)  -- North
+            if moveCount == 0 then
+                print(string.format("  Moving North %d blocks...", math.abs(zDiff)))
+            end
+        else
+            break  -- Already at target Z
+        end
+        
         local success = tryForward()
         
         if success then
             moveCount = moveCount + 1
             failCount = 0  -- Reset fail count on success
             
-            -- Progress update every 10 blocks
-            if moveCount % 10 == 0 then
-                print(string.format("  Z progress: %d", moveCount))
+            -- GPS check every 5 blocks to correct drift
+            if moveCount % 5 == 0 then
+                local gx, gy, gz = gps.locate(5)
+                if gx then
+                    local oldPos = lastKnown
+                    lastKnown = {x=math.floor(gx), y=math.floor(gy), z=math.floor(gz)}
+                    local remaining = math.abs(targetZ - lastKnown.z)
+                    print(string.format("  Z progress: %d (GPS: %d, %d, %d) - %d blocks to go", moveCount, lastKnown.x, lastKnown.y, lastKnown.z, remaining))
+                    
+                    -- Check if we need to change direction
+                    if (oldPos.z < targetZ) ~= (lastKnown.z < targetZ) then
+                        print("  ⚠ Correcting direction...")
+                    end
+                else
+                    print(string.format("  Z progress: %d", moveCount))
+                end
             end
         else
             -- Failed to move forward (e.g., hit chest or unbreakable)
