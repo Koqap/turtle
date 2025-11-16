@@ -6,6 +6,7 @@
 ----------------------------------
 local scannerSide = "right"          -- side where geo scanner is attached
 local modemSide = "left"             -- side where wireless modem is attached
+local monitorSide = nil              -- optional monitor (nil = auto-detect, "top"/"bottom"/etc)
 local BASALT = true                  -- set true if Basalt installed (v2 API)
 local SCAN_RADIUS = 16               -- scanner radius (16 = 33x33x33 area)
 local AUTO_SAVE_INTERVAL = 30        -- seconds
@@ -24,8 +25,26 @@ local modem = peripheral.wrap(modemSide)
 -- Disk drive storage - DISABLED (causes disk full errors)
 local drive = nil  -- Disabled to avoid disk space issues
 
+-- Optional monitor support
+local monitor = nil
+if monitorSide then
+    monitor = peripheral.wrap(monitorSide)
+else
+    -- Auto-detect monitor
+    monitor = peripheral.find("monitor")
+end
+
 if not scanner then
     print("WARNING: Geo scanner not found on geo_scanner_1")
+end
+
+-- Monitor status
+if monitor then
+    local mw, mh = monitor.getSize()
+    print("✓ Monitor detected: " .. peripheral.getName(monitor))
+    print("  Resolution: " .. mw .. "x" .. mh)
+else
+    print("⚠ No monitor detected (using computer screen)")
 end
 
 -- Ensure rednet open
@@ -513,27 +532,27 @@ if BASALT then
             :setBackground(colors.gray)
             :setForeground(colors.yellow)
         
-        -- Create ore list label
+        -- Create ore list label (smaller)
         local oreListLabel = main:addLabel()
             :setText("Loading...")
             :setPosition(1, 6)
-            :setSize(w, 14)
+            :setSize(w, 7)
             :setBackground(colors.black)
             :setForeground(colors.white)
         
-        -- Create turtle status label
+        -- Create turtle status label (more visible)
         local turtleStatusLabel = main:addLabel()
             :setText("No turtles connected")
-            :setPosition(1, 21)
-            :setSize(w, 4)
+            :setPosition(1, 14)
+            :setSize(w, 6)
             :setBackground(colors.gray)
             :setForeground(colors.white)
         
         -- Create log label
         local logLabel = main:addLabel()
             :setText("Activity Log:")
-            :setPosition(1, 25)
-            :setSize(w, h - 24)
+            :setPosition(1, 21)
+            :setSize(w, h - 20)
             :setBackground(colors.black)
             :setForeground(colors.lightGray)
         
@@ -563,22 +582,19 @@ if BASALT then
             table.insert(oreText, string.rep("-", 40))
             
             if #mapData.ores == 0 then
-                table.insert(oreText, "(No ores discovered yet)")
-                table.insert(oreText, "")
-                table.insert(oreText, "Waiting for turtle scan requests...")
+                table.insert(oreText, "(No ores - click SCAN)")
             else
-                local maxDisplay = 15
+                local maxDisplay = 5
                 for i = 1, math.min(maxDisplay, #mapData.ores) do
                     local o = mapData.ores[i]
                     local oreName = o.name:match("(%w+)_ore") or "ore"
-                    local status = o.claimed and "[CLAIMED]" or "[  OPEN  ]"
-                    table.insert(oreText, string.format("%s %s at %d,%d,%d", 
+                    local status = o.claimed and "[BUSY]" or "[OPEN]"
+                    table.insert(oreText, string.format("%s %s %d,%d,%d", 
                         status, oreName, o.x, o.y, o.z))
                 end
                 
                 if #mapData.ores > maxDisplay then
-                    table.insert(oreText, "")
-                    table.insert(oreText, string.format("...and %d more ores tracked", #mapData.ores - maxDisplay))
+                    table.insert(oreText, string.format("+%d more", #mapData.ores - maxDisplay))
                 end
             end
             
@@ -592,29 +608,116 @@ if BASALT then
             end
             
             if turtleCount == 0 then
+                table.insert(turtleText, "━━━ TURTLE STATUS ━━━")
                 table.insert(turtleText, "No turtles connected")
+                table.insert(turtleText, "")
+                table.insert(turtleText, "Waiting for miner_v2...")
             else
-                table.insert(turtleText, string.format("ACTIVE TURTLES: %d", turtleCount))
-                table.insert(turtleText, string.rep("-", 50))
+                table.insert(turtleText, string.format("━━━ ACTIVE TURTLES: %d ━━━", turtleCount))
                 
                 for id, t in pairs(turtles) do
-                    local pos = string.format("Pos: %d,%d,%d", t.position.x, t.position.y, t.position.z)
-                    local mined = string.format("Mined: %d", t.oresMined)
+                    local pos = string.format("%d,%d,%d", t.position.x, t.position.y, t.position.z)
                     local target = "Idle"
                     if t.currentTarget then
-                        target = string.format("Target: %s at %d,%d,%d", 
-                            t.currentTarget.name:match("(%w+)_ore") or "ore",
+                        local oreName = t.currentTarget.name:match("(%w+)_ore") or "ore"
+                        target = string.format("%s@%d,%d,%d", oreName, 
                             t.currentTarget.x, t.currentTarget.y, t.currentTarget.z)
                     end
                     
                     table.insert(turtleText, string.format(
-                        "Turtle #%d | %s | %s | %s | %s", 
-                        id, t.status, pos, mined, target
+                        "#%d [%s] Pos:%s Mined:%d", 
+                        id, t.status, pos, t.oresMined
                     ))
+                    table.insert(turtleText, string.format("  -> %s", target))
                 end
             end
             
             turtleStatusLabel:setText(table.concat(turtleText, "\n"))
+            
+            -- Update external monitor if available
+            if monitor then
+                updateMonitor()
+            end
+        end
+        
+        -- Monitor display function
+        local function updateMonitor()
+            if not monitor then return end
+            
+            local oldTerm = term.redirect(monitor)
+            term.clear()
+            term.setCursorPos(1, 1)
+            
+            -- Header
+            term.setTextColor(colors.yellow)
+            term.setBackgroundColor(colors.blue)
+            local mw, mh = monitor.getSize()
+            term.write(string.rep(" ", mw))
+            term.setCursorPos(1, 1)
+            term.write("SMARTMINER STATUS MONITOR")
+            
+            -- Stats
+            term.setBackgroundColor(colors.black)
+            term.setTextColor(colors.white)
+            term.setCursorPos(1, 3)
+            term.write(string.format("Ores Tracked: %d", #mapData.ores))
+            
+            -- Turtle list
+            term.setCursorPos(1, 5)
+            term.setTextColor(colors.lime)
+            term.write("ACTIVE TURTLES:")
+            
+            local turtleCount = 0
+            for _ in pairs(turtles) do turtleCount = turtleCount + 1 end
+            
+            if turtleCount == 0 then
+                term.setCursorPos(1, 6)
+                term.setTextColor(colors.gray)
+                term.write("No turtles connected")
+            else
+                local line = 6
+                for id, t in pairs(turtles) do
+                    term.setCursorPos(1, line)
+                    term.setTextColor(colors.white)
+                    term.write(string.format("Turtle #%d", id))
+                    
+                    line = line + 1
+                    term.setCursorPos(3, line)
+                    term.setTextColor(colors.lightGray)
+                    term.write(string.format("Status: %s", t.status))
+                    
+                    line = line + 1
+                    term.setCursorPos(3, line)
+                    term.write(string.format("Pos: %d, %d, %d", t.position.x, t.position.y, t.position.z))
+                    
+                    line = line + 1
+                    term.setCursorPos(3, line)
+                    term.setTextColor(colors.yellow)
+                    term.write(string.format("Ores Mined: %d", t.oresMined))
+                    
+                    if t.currentTarget then
+                        line = line + 1
+                        term.setCursorPos(3, line)
+                        term.setTextColor(colors.orange)
+                        local oreName = t.currentTarget.name:match("(%w+)_ore") or "ore"
+                        term.write(string.format("Target: %s at %d,%d,%d", 
+                            oreName, t.currentTarget.x, t.currentTarget.y, t.currentTarget.z))
+                    end
+                    
+                    line = line + 2
+                    if line >= mh - 1 then break end
+                end
+            end
+            
+            -- Footer
+            term.setCursorPos(1, mh)
+            term.setBackgroundColor(colors.gray)
+            term.setTextColor(colors.white)
+            term.write(string.rep(" ", mw))
+            term.setCursorPos(1, mh)
+            term.write(string.format("Last Update: %s", os.date("%H:%M:%S")))
+            
+            term.redirect(oldTerm)
         end
         
         -- Create scan button
