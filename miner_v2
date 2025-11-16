@@ -130,20 +130,19 @@ local homeFacing
 local savedHome = loadHomeLocation()
 
 if savedHome then
-    print(string.format("Saved home: %d, %d, %d", savedHome.x, savedHome.y, savedHome.z))
-    print("Use saved location? (Y/n)")
-    local input = read()
-    
-    if input ~= "n" and input ~= "N" then
-        homePos = {x=savedHome.x, y=savedHome.y, z=savedHome.z}
-        homeFacing = savedHome.facing
-        facing = homeFacing
-        print("✓ Using saved home location")
-    end
-end
-
--- If no saved location or user declined, set up new one
-if not homePos then
+    -- Auto-load saved location without prompting
+    homePos = {x=savedHome.x, y=savedHome.y, z=savedHome.z}
+    homeFacing = savedHome.facing
+    facing = homeFacing
+    print(string.format("✓ Loaded home: %d, %d, %d", savedHome.x, savedHome.y, savedHome.z))
+    print(string.format("✓ Facing: %s", ({"north","east","south","west"})[homeFacing+1] or "unknown"))
+    print("✓ Ready to mine!")
+    print("")
+    print("(To reset home: delete home_location.txt)")
+else
+    -- First time setup
+    print("FIRST TIME SETUP")
+    print("")
     print("Place chest BEHIND turtle")
     print("(Turtle should face AWAY from chest)")
     print("")
@@ -207,17 +206,20 @@ local function detectFacing()
     return 0  -- Default
 end
 
--- Only detect facing if not already set
+-- Only detect facing if first-time setup (no saved home)
 if not homeFacing then
+    print("Detecting facing direction...")
     facing = detectFacing()
     homeFacing = facing
+    
+    local dirNames = {[0]="north", [1]="east", [2]="south", [3]="west"}
+    print(string.format("✓ Facing: %s", dirNames[facing]))
+    
     -- Save the home location with facing
     saveHomeLocation(homePos, homeFacing)
+    print(string.format("✓ Home saved: %d,%d,%d", homePos.x, homePos.y, homePos.z))
 end
 
-local dirNames = {[0]="north", [1]="east", [2]="south", [3]="west"}
-print(string.format("✓ Facing: %s", dirNames[facing]))
-print(string.format("✓ Home: %d,%d,%d (Saved)", homePos.x, homePos.y, homePos.z))
 print("✓ Setup complete")
 print("═══════════════════════════════════")
 
