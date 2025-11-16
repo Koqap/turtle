@@ -475,12 +475,29 @@ local function handleRequest(id, msg)
         local cx, cy, cz = msg.x, msg.y, msg.z
         local oreFilter = msg.oreFilter  -- Get ore filter from turtle
         print(string.format("  Turtle at: %d,%d,%d", cx, cy, cz))
+        print(string.format("  Total ores in system: %d", #mapData.ores))
         
         -- Update turtle tracking
         updateTurtle(id, {
             position = {x=cx, y=cy, z=cz},
             status = "requesting path"
         })
+        
+        -- Debug: Show filter status
+        print("  Filter Debug:")
+        if BASALT and oreFilterEnabled then
+            print("    Using GUI filter:")
+            for oreType, enabled in pairs(oreFilterEnabled) do
+                print(string.format("      %s: %s", oreType, enabled and "ON" or "OFF"))
+            end
+        elseif oreFilter then
+            print("    Using turtle filter:")
+            for _, filterType in ipairs(oreFilter) do
+                print(string.format("      %s", filterType))
+            end
+        else
+            print("    No filter (mining all ores)")
+        end
         
         -- Helper function to check if ore matches filter
         local function matchesFilter(oreName)
@@ -509,9 +526,24 @@ local function handleRequest(id, msg)
         local totalOres = 0
         local filteredOres = 0
         local outOfRange = 0
+        local claimed = 0
+        local visited = 0
+        
+        -- Debug: Show first few ores
+        print("  First 3 ores in system:")
+        for i = 1, math.min(3, #mapData.ores) do
+            local o = mapData.ores[i]
+            local isClaimed = o.claimed and "claimed" or "not-claimed"
+            local isVisited = mapData.visited[keyFrom(o.x, o.y, o.z)] and "visited" or "not-visited"
+            print(string.format("    %d: %s at %d,%d,%d [%s, %s]", i, o.name, o.x, o.y, o.z, isClaimed, isVisited))
+        end
         
         for i, o in ipairs(mapData.ores) do
-            if not o.claimed and not mapData.visited[keyFrom(o.x, o.y, o.z)] then
+            if o.claimed then
+                claimed = claimed + 1
+            elseif mapData.visited[keyFrom(o.x, o.y, o.z)] then
+                visited = visited + 1
+            elseif not o.claimed and not mapData.visited[keyFrom(o.x, o.y, o.z)] then
                 totalOres = totalOres + 1
                 
                 -- Check if ore matches filter
@@ -537,6 +569,8 @@ local function handleRequest(id, msg)
                 end
             end
         end
+        
+        print(string.format("  Ore states: %d claimed, %d visited, %d available", claimed, visited, totalOres))
         
         -- Sort nearby ores by distance (nearest first)
         table.sort(nearbyOres, function(a, b) return a.distance < b.distance end)
