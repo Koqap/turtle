@@ -568,79 +568,7 @@ if BASALT then
             logLabel:setText("Activity Log:\n" .. table.concat(logBuffer, "\n"))
         end
         
-        -- Define updateDisplay function BEFORE button
-        local function updateDisplay()
-            -- Update status
-            statusLabel:setText(string.format(
-                " ID:%d | Protocol:%s | Ores:%d | Click SCAN button or Press Q=Quit",
-                COMPUTER_ID, PROTOCOL, #mapData.ores
-            ))
-            
-            -- Update ore list
-            local oreText = {}
-            table.insert(oreText, "Tracked Ores: " .. #mapData.ores)
-            table.insert(oreText, string.rep("-", 40))
-            
-            if #mapData.ores == 0 then
-                table.insert(oreText, "(No ores - click SCAN)")
-            else
-                local maxDisplay = 5
-                for i = 1, math.min(maxDisplay, #mapData.ores) do
-                    local o = mapData.ores[i]
-                    local oreName = o.name:match("(%w+)_ore") or "ore"
-                    local status = o.claimed and "[BUSY]" or "[OPEN]"
-                    table.insert(oreText, string.format("%s %s %d,%d,%d", 
-                        status, oreName, o.x, o.y, o.z))
-                end
-                
-                if #mapData.ores > maxDisplay then
-                    table.insert(oreText, string.format("+%d more", #mapData.ores - maxDisplay))
-                end
-            end
-            
-            oreListLabel:setText(table.concat(oreText, "\n"))
-            
-            -- Update turtle status
-            local turtleText = {}
-            local turtleCount = 0
-            for _, t in pairs(turtles) do
-                turtleCount = turtleCount + 1
-            end
-            
-            if turtleCount == 0 then
-                table.insert(turtleText, "━━━ TURTLE STATUS ━━━")
-                table.insert(turtleText, "No turtles connected")
-                table.insert(turtleText, "")
-                table.insert(turtleText, "Waiting for miner_v2...")
-            else
-                table.insert(turtleText, string.format("━━━ ACTIVE TURTLES: %d ━━━", turtleCount))
-                
-                for id, t in pairs(turtles) do
-                    local pos = string.format("%d,%d,%d", t.position.x, t.position.y, t.position.z)
-                    local target = "Idle"
-                    if t.currentTarget then
-                        local oreName = t.currentTarget.name:match("(%w+)_ore") or "ore"
-                        target = string.format("%s@%d,%d,%d", oreName, 
-                            t.currentTarget.x, t.currentTarget.y, t.currentTarget.z)
-                    end
-                    
-                    table.insert(turtleText, string.format(
-                        "#%d [%s] Pos:%s Mined:%d", 
-                        id, t.status, pos, t.oresMined
-                    ))
-                    table.insert(turtleText, string.format("  -> %s", target))
-                end
-            end
-            
-            turtleStatusLabel:setText(table.concat(turtleText, "\n"))
-            
-            -- Update external monitor if available
-            if monitor then
-                updateMonitor()
-            end
-        end
-        
-        -- Monitor display function
+        -- Monitor display function (DEFINE BEFORE updateDisplay)
         local function updateMonitor()
             if not monitor then return end
             
@@ -718,6 +646,78 @@ if BASALT then
             term.write(string.format("Last Update: %s", os.date("%H:%M:%S")))
             
             term.redirect(oldTerm)
+        end
+        
+        -- Define updateDisplay function BEFORE button
+        local function updateDisplay()
+            -- Update status
+            statusLabel:setText(string.format(
+                " ID:%d | Protocol:%s | Ores:%d | Click SCAN button or Press Q=Quit",
+                COMPUTER_ID, PROTOCOL, #mapData.ores
+            ))
+            
+            -- Update ore list
+            local oreText = {}
+            table.insert(oreText, "Tracked Ores: " .. #mapData.ores)
+            table.insert(oreText, string.rep("-", 40))
+            
+            if #mapData.ores == 0 then
+                table.insert(oreText, "(No ores - click SCAN)")
+            else
+                local maxDisplay = 5
+                for i = 1, math.min(maxDisplay, #mapData.ores) do
+                    local o = mapData.ores[i]
+                    local oreName = o.name:match("(%w+)_ore") or "ore"
+                    local status = o.claimed and "[BUSY]" or "[OPEN]"
+                    table.insert(oreText, string.format("%s %s %d,%d,%d", 
+                        status, oreName, o.x, o.y, o.z))
+                end
+                
+                if #mapData.ores > maxDisplay then
+                    table.insert(oreText, string.format("+%d more", #mapData.ores - maxDisplay))
+                end
+            end
+            
+            oreListLabel:setText(table.concat(oreText, "\n"))
+            
+            -- Update turtle status
+            local turtleText = {}
+            local turtleCount = 0
+            for _, t in pairs(turtles) do
+                turtleCount = turtleCount + 1
+            end
+            
+            if turtleCount == 0 then
+                table.insert(turtleText, "━━━ TURTLE STATUS ━━━")
+                table.insert(turtleText, "No turtles connected")
+                table.insert(turtleText, "")
+                table.insert(turtleText, "Waiting for miner_v2...")
+            else
+                table.insert(turtleText, string.format("━━━ ACTIVE TURTLES: %d ━━━", turtleCount))
+                
+                for id, t in pairs(turtles) do
+                    local pos = string.format("%d,%d,%d", t.position.x, t.position.y, t.position.z)
+                    local target = "Idle"
+                    if t.currentTarget then
+                        local oreName = t.currentTarget.name:match("(%w+)_ore") or "ore"
+                        target = string.format("%s@%d,%d,%d", oreName, 
+                            t.currentTarget.x, t.currentTarget.y, t.currentTarget.z)
+                    end
+                    
+                    table.insert(turtleText, string.format(
+                        "#%d [%s] Pos:%s Mined:%d", 
+                        id, t.status, pos, t.oresMined
+                    ))
+                    table.insert(turtleText, string.format("  -> %s", target))
+                end
+            end
+            
+            turtleStatusLabel:setText(table.concat(turtleText, "\n"))
+            
+            -- Update external monitor if available
+            if monitor then
+                updateMonitor()
+            end
         end
         
         -- Create scan button
