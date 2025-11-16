@@ -10,12 +10,11 @@ local HOME_FILE = "home_location.txt"
 
 if fs.exists(HOME_FILE) then
     print("✓ Found saved home location")
-    print("✓ Auto-starting miner in 3 seconds...")
+    print("✓ Auto-starting miner NOW...")
+    print("(Ctrl+T to cancel)")
     print("")
-    print("Press Ctrl+T to cancel")
-    sleep(3)
     
-    -- Run the miner (will auto-load home and start mining)
+    -- Run the miner immediately (will auto-load home and start mining)
     shell.run("miner_v2")
 else
     print("✗ No saved home location found")

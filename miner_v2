@@ -142,13 +142,18 @@ if savedHome then
     local atHome = (currentPos.x == homePos.x and currentPos.y == homePos.y and currentPos.z == homePos.z)
     
     if not atHome then
-        print(string.format("⚠ Warning: Not at home! (at %d,%d,%d)", currentPos.x, currentPos.y, currentPos.z))
-        print("Please manually return turtle to home base:")
-        print(string.format("  Target: %d, %d, %d", homePos.x, homePos.y, homePos.z))
+        print(string.format("⚠ Not at home! Currently at: %d,%d,%d", currentPos.x, currentPos.y, currentPos.z))
+        print(string.format("⚠ Home location: %d,%d,%d", homePos.x, homePos.y, homePos.z))
         print("")
-        print("Or delete home_location.txt to set new home")
-        print("Press Enter to continue anyway...")
-        read()
+        print("AUTO-NAVIGATING back to home base...")
+        print("(This may take a while)")
+        
+        -- Auto-navigate to home
+        moveAbs(homePos.x, homePos.y, homePos.z)
+        
+        print("✓ Arrived at home!")
+    else
+        print("✓ Turtle at home position")
     end
     
     -- Verify chest is still there
