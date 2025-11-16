@@ -11,6 +11,7 @@ local BASALT = true                  -- set true if Basalt installed (v2 API)
 local SCAN_RADIUS = 16               -- scanner radius (16 = 33x33x33 area)
 local AUTO_SAVE_INTERVAL = 30        -- seconds
 local PROTOCOL = "smartminer"        -- rednet protocol
+local MAX_MINING_RANGE = 60          -- max distance for ore mining (blocks)
 
 -- IDs and networking
 local COMPUTER_ID = os.getComputerID and os.getComputerID() or 1
@@ -493,26 +494,54 @@ local function handleRequest(id, msg)
             return false
         end
         
-        -- choose nearest unclaimed ore that matches filter
-        local bestIdx, bestDist = nil, math.huge
+        -- Find all nearby ores within range and sort by distance
+        local nearbyOres = {}
+        local totalOres = 0
+        local filteredOres = 0
+        local outOfRange = 0
+        
         for i, o in ipairs(mapData.ores) do
             if not o.claimed and not mapData.visited[keyFrom(o.x, o.y, o.z)] then
+                totalOres = totalOres + 1
+                
                 -- Check if ore matches filter
                 if matchesFilter(o.name) then
+                    filteredOres = filteredOres + 1
+                    
+                    -- Calculate distance (Manhattan distance)
                     local dx = o.x - cx
                     local dy = o.y - cy
                     local dz = o.z - cz
                     local dist = math.abs(dx) + math.abs(dy) + math.abs(dz)
-                    if dist < bestDist then 
-                        bestDist = dist
-                        bestIdx = i 
+                    
+                    -- Only consider ores within MAX_MINING_RANGE
+                    if dist <= MAX_MINING_RANGE then
+                        table.insert(nearbyOres, {
+                            index = i,
+                            ore = o,
+                            distance = dist
+                        })
+                    else
+                        outOfRange = outOfRange + 1
                     end
                 end
             end
         end
         
-        if not bestIdx then
-            print("  No available ores matching filter")
+        -- Sort nearby ores by distance (nearest first)
+        table.sort(nearbyOres, function(a, b) return a.distance < b.distance end)
+        
+        print(string.format("  Ore stats: %d total, %d filtered, %d in range, %d too far", 
+            totalOres, filteredOres, #nearbyOres, outOfRange))
+        
+        -- Choose the nearest ore
+        if #nearbyOres == 0 then
+            if outOfRange > 0 then
+                print(string.format("  No ores within %d blocks (all ores too far)", MAX_MINING_RANGE))
+                print("  Turtle should return to base or scan new area")
+            else
+                print("  No available ores matching filter")
+            end
             rednet.send(id, { 
                 type = "path", 
                 steps = {} 
@@ -520,9 +549,23 @@ local function handleRequest(id, msg)
             return
         end
 
-        local target = mapData.ores[bestIdx]
-        print(string.format("  Target: %s at %d,%d,%d (distance: %d)", 
+        local nearest = nearbyOres[1]
+        local target = nearest.ore
+        local bestIdx = nearest.index
+        local bestDist = nearest.distance
+        
+        print(string.format("  Target: %s at %d,%d,%d (distance: %d blocks)", 
             target.name, target.x, target.y, target.z, math.floor(bestDist)))
+        
+        -- Show next 2 nearest ores for planning
+        if #nearbyOres > 1 then
+            print(string.format("  Next: %s at distance %d", 
+                nearbyOres[2].ore.name, math.floor(nearbyOres[2].distance)))
+        end
+        if #nearbyOres > 2 then
+            print(string.format("  After: %s at distance %d", 
+                nearbyOres[3].ore.name, math.floor(nearbyOres[3].distance)))
+        end
         
         -- SIMPLIFIED PATH: Just send the target coordinates
         -- The turtle will navigate there directly without complex A*
@@ -990,6 +1033,7 @@ if BASALT then
         -- Initialize
         addLog("SmartMiner initialized")
         addLog(string.format("Computer ID: %d", COMPUTER_ID))
+        addLog(string.format("Mining range: %d blocks", MAX_MINING_RANGE))
         addLog("")
         addLog("Click START to begin operations")
         addLog("Click SCAN for manual scan")
