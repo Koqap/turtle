@@ -666,6 +666,105 @@ local function handleRequest(id, msg)
             has_envdetector = envDetector ~= nil  -- Tell turtle if scanner has environment detector
         }, PROTOCOL)
 
+    elseif msg.type == "request_chest_scan" then
+        print(string.format("[%s] Chest scan request from turtle %d", os.time(), id))
+        local turtleX, turtleY, turtleZ = msg.x or 0, msg.y or 0, msg.z or 0
+        print(string.format("  Scanning near position: %d, %d, %d", turtleX, turtleY, turtleZ))
+        
+        -- Update turtle tracking
+        updateTurtle(id, {
+            position = {x=turtleX, y=turtleY, z=turtleZ},
+            status = "requesting chest scan"
+        })
+        
+        if not envDetector then
+            print("  ✗ Environment Detector not available!")
+            rednet.send(id, {
+                type = "chest_scan_result",
+                success = false,
+                error = "Scanner has no Environment Detector"
+            }, PROTOCOL)
+            return
+        end
+        
+        -- Use Environment Detector to scan for chests
+        -- Scanner's Environment Detector scans relative to SCANNER position
+        -- So we need to calculate the offset from scanner to turtle position
+        local scanOffsetX = turtleX - SCANNER_X
+        local scanOffsetY = turtleY - SCANNER_Y
+        local scanOffsetZ = turtleZ - SCANNER_Z
+        
+        print(string.format("  Scan offset from scanner: %d, %d, %d", scanOffsetX, scanOffsetY, scanOffsetZ))
+        
+        -- Scan 10 block radius (should cover turtle + 5 block chest range)
+        local scanRadius = 15
+        local ok, blocks = pcall(function() return envDetector.scan(scanRadius) end)
+        
+        if not ok or not blocks then
+            print("  ✗ Environment Detector scan failed!")
+            rednet.send(id, {
+                type = "chest_scan_result",
+                success = false,
+                error = "Scan failed"
+            }, PROTOCOL)
+            return
+        end
+        
+        print(string.format("  Scanned %d blocks", #blocks))
+        
+        -- Find chests in scan results
+        local chests = {}
+        for _, block in ipairs(blocks) do
+            if block.name and block.name:find("chest") then
+                -- Block positions are relative to scanner
+                local absX = SCANNER_X + (block.x or 0)
+                local absY = SCANNER_Y + (block.y or 0)
+                local absZ = SCANNER_Z + (block.z or 0)
+                
+                -- Calculate distance from turtle position
+                local dist = math.abs(absX - turtleX) + math.abs(absY - turtleY) + math.abs(absZ - turtleZ)
+                
+                if dist <= 10 then  -- Only consider chests within 10 blocks of turtle
+                    table.insert(chests, {
+                        x = absX,
+                        y = absY,
+                        z = absZ,
+                        distance = dist,
+                        name = block.name
+                    })
+                    print(string.format("  Found %s at %d, %d, %d (distance: %d)", 
+                        block.name, absX, absY, absZ, dist))
+                end
+            end
+        end
+        
+        if #chests == 0 then
+            print("  ✗ No chests found near turtle!")
+            rednet.send(id, {
+                type = "chest_scan_result",
+                success = false,
+                error = "No chest found within range"
+            }, PROTOCOL)
+            return
+        end
+        
+        -- Find closest chest
+        table.sort(chests, function(a, b) return a.distance < b.distance end)
+        local closest = chests[1]
+        
+        print(string.format("  ✓ Closest chest: %d, %d, %d (distance: %d blocks)", 
+            closest.x, closest.y, closest.z, closest.distance))
+        
+        rednet.send(id, {
+            type = "chest_scan_result",
+            success = true,
+            chest = {
+                x = closest.x,
+                y = closest.y,
+                z = closest.z
+            }
+        }, PROTOCOL)
+        
     elseif msg.type == "ore_mined" then
         print(string.format("[%s] Ore mined report from turtle %d", os.time(), id))
         local ox, oy, oz = msg.x, msg.y, msg.z

@@ -131,115 +131,73 @@ local function loadHomeLocation()
 end
 
 ----------------------------------
--- ENVIRONMENT DETECTOR (Advanced Peripherals)
+-- CHEST DETECTION VIA SCANNER
 ----------------------------------
-local envDetector = peripheral.wrap("environment_detector_1")
+-- Turtle does NOT have Environment Detector!
+-- Scanner computer has it and sends chest data via rednet
 
-if envDetector then
-    print("✓ Environment Detector found: environment_detector_1")
-    print("  Smart chest detection enabled!")
-else
-    print("⚠ Environment Detector not found")
-    print("  Using basic turtle.inspect() method")
-end
-print("")
-
-local function scanBlocksWithEnvDetector(radius)
-    if not envDetector then return nil end
+local function requestChestScan(fromPos)
+    print("Requesting chest scan from scanner...")
     
-    print("Using Environment Detector for advanced scan...")
-    local ok, blocks = pcall(function() 
-        return envDetector.scan(radius) 
-    end)
+    rednet.send(COMPUTER_ID, {
+        type = "request_chest_scan",
+        x = fromPos.x,
+        y = fromPos.y,
+        z = fromPos.z
+    }, PROTOCOL)
     
-    if ok and blocks then
-        print(string.format("  Scanned %d blocks in %d block radius", #blocks, radius))
-        return blocks
-    end
-    return nil
-end
-
-local function findChestWithEnvDetector()
-    if not envDetector then return nil end
+    -- Wait for response (timeout 10 seconds)
+    local timeout = 10
+    local startTime = os.clock()
     
-    print("Scanning for chests with Environment Detector...")
-    
-    -- Scan 5 block radius
-    local blocks = scanBlocksWithEnvDetector(5)
-    if not blocks then return nil end
-    
-    -- Find chests
-    local chests = {}
-    for _, block in ipairs(blocks) do
-        if block.name and string.find(block.name, "chest") then
-            table.insert(chests, block)
-            print(string.format("  Found chest at offset: %d, %d, %d", 
-                block.x or 0, block.y or 0, block.z or 0))
+    while os.clock() - startTime < timeout do
+        local id, msg = rednet.receive(PROTOCOL, 0.5)
+        if id == COMPUTER_ID and msg and msg.type == "chest_scan_result" then
+            return msg.chest, msg.success
         end
     end
     
-    if #chests == 0 then
-        print("  No chests found in scan")
-        return nil
-    end
-    
-    -- Find closest chest
-    local closest = chests[1]
-    local minDist = math.abs(closest.x or 0) + math.abs(closest.y or 0) + math.abs(closest.z or 0)
-    
-    for _, chest in ipairs(chests) do
-        local dist = math.abs(chest.x or 0) + math.abs(chest.y or 0) + math.abs(chest.z or 0)
-        if dist < minDist then
-            closest = chest
-            minDist = dist
-        end
-    end
-    
-    return closest
+    print("  ✗ No response from scanner")
+    return nil, false
 end
 
-local function detectChestEnvironment()
+local function detectChestViaScanner()
     print("═══════════════════════════════")
-    print("  SMART CHEST DETECTION")
+    print("  CHEST DETECTION (VIA SCANNER)")
     print("═══════════════════════════════")
     print("")
-    
-    -- Require Environment Detector
-    if not envDetector then
-        print("✗ ERROR: Environment Detector required!")
-        print("")
-        print("Setup:")
-        print("  1. Place Environment Detector (Advanced Peripherals)")
-        print("  2. Name it: environment_detector_1")
-        print("  3. Connect to turtle (wired modem or adjacent)")
-        print("")
-        error("Environment Detector not found: environment_detector_1")
-    end
     
     -- Get current position
     local pos = getPos()
-    print(string.format("Current position: %d, %d, %d", pos.x, pos.y, pos.z))
+    print(string.format("Turtle position: %d, %d, %d", pos.x, pos.y, pos.z))
     print("")
     
-    -- Scan for chest
-    print("Scanning for chest with Environment Detector...")
-    local chest = findChestWithEnvDetector()
+    -- Request scanner to find chest near this position
+    local chest, success = requestChestScan(pos)
     
-    if not chest or not chest.x or not chest.z then
+    if not success or not chest then
         print("")
-        print("✗ ERROR: No chest found within 5 blocks!")
+        print("✗ ERROR: Scanner could not find chest!")
         print("")
         print("Setup:")
-        print("  1. Place chest within 5 blocks of turtle")
-        print("  2. Turtle must be on same Y-level as chest")
-        print("  3. Run miner_v2 again")
+        print("  1. Ensure scanner computer is running")
+        print("  2. Scanner must have Environment Detector (environment_detector_1)")
+        print("  3. Place chest within 5 blocks of turtle")
+        print("  4. Turtle and chest on same Y-level")
         print("")
-        error("No chest found within 5 blocks")
+        error("Chest detection failed")
     end
     
-    -- Calculate chest location
-    local cx, cy, cz = chest.x, chest.y or 0, chest.z
-    print(string.format("✓ Chest found at offset: %+d, %+d, %+d", cx, cy, cz))
+    -- Scanner returns absolute chest position
+    local chestX, chestY, chestZ = chest.x, chest.y, chest.z
+    print(string.format("✓ Scanner found chest at: %d, %d, %d", chestX, chestY, chestZ))
+    
+    -- Calculate chest offset from turtle
+    local cx = chestX - pos.x
+    local cy = chestY - pos.y
+    local cz = chestZ - pos.z
+    
+    print(string.format("  Offset from turtle: %d, %d, %d", cx, cy, cz))
     
     -- Check Y-level
     if cy ~= 0 then
@@ -248,9 +206,8 @@ local function detectChestEnvironment()
             math.abs(cy), cy > 0 and "ABOVE" or "BELOW"))
         print("")
         print("Setup:")
-        print("  1. Move turtle to same Y-level as chest")
-        print("  2. Or move chest to turtle's Y-level")
-        print("  3. Run miner_v2 again")
+        print("  1. Place chest on SAME Y-level as turtle")
+        print("  2. Chest can be up to 5 blocks away horizontally")
         print("")
         error("Chest Y-level mismatch")
     end
@@ -307,13 +264,13 @@ if savedHome then
     print(string.format("✓ Facing: %s", ({"North","East","South","West"})[homeFacing+1] or "unknown"))
     print("")
 else
-    -- First time setup - use Environment Detector
+    -- First time setup - use scanner to detect chest
     print("FIRST TIME SETUP")
     print("")
     
-    local detected = detectChestEnvironment()
+    local detected = detectChestViaScanner()
     
-    -- detectChestEnvironment() will error if it fails
+    -- detectChestViaScanner() will error if it fails
     -- So if we reach here, detection succeeded
     homePos = {x=detected.x, y=detected.y, z=detected.z}
     homeFacing = detected.facing
@@ -1085,12 +1042,12 @@ local function depositToChest()
         end
     end
     
-    -- Use Environment Detector to find chest
-    print("  Scanning for chest with Environment Detector...")
-    local chest = findChestWithEnvDetector()
+    -- Request scanner to find chest near home position
+    print("  Requesting chest scan from scanner...")
+    local chest, success = requestChestScan(homePos)
     
-    if not chest then
-        print("  ✗ ERROR: No chest found!")
+    if not success or not chest then
+        print("  ✗ ERROR: Scanner could not find chest!")
         print("  Keeping items in inventory...")
         rednet.send(COMPUTER_ID, {
             type = "status_update",
@@ -1100,7 +1057,10 @@ local function depositToChest()
         return false
     end
     
-    local cx, cy, cz = chest.x, chest.y or 0, chest.z
+    -- Calculate offset from home position to chest
+    local cx = chest.x - homePos.x
+    local cy = chest.y - homePos.y
+    local cz = chest.z - homePos.z
     print(string.format("  ✓ Chest at offset: %+d, %+d, %+d", cx, cy, cz))
     
     -- Handle Y-level difference
