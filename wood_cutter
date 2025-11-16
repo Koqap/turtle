@@ -161,9 +161,25 @@ local function detectFacing()
     elseif dx == -1 then detectedFacing = 3  -- Moved west (X decreases)
     end
 
-    -- Move back to original position
-    -- Simply back up since we just moved forward
-    turtle.back()
+    -- Move back to original position and VERIFY we got there
+    if not turtle.back() then
+        -- Back is blocked, turn around and move forward instead
+        print("Back blocked, turning around...")
+        turtle.turnRight()
+        turtle.turnRight()
+        while not turtle.forward() do
+            turtle.dig()
+            sleep(0.1)
+        end
+        turtle.turnRight()
+        turtle.turnRight()
+    end
+
+    -- Verify we're actually at the starting position
+    local x3, y3, z3 = gpsLoc()
+    if x3 ~= x1 or y3 ~= y1 or z3 ~= z1 then
+        error(string.format("ERROR: detectFacing() didn't return to start! Was %d,%d,%d now %d,%d,%d", x1, y1, z1, x3, y3, z3))
+    end
 
     return detectedFacing
 end

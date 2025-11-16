@@ -161,9 +161,25 @@ local function detectFacing()
     elseif dx == -1 then detectedFacing = 3  -- Moved west (X decreases)
     end
 
-    -- Move back to original position
-    -- Simply back up since we just moved forward
-    turtle.back()
+    -- Move back to original position and VERIFY we got there
+    if not turtle.back() then
+        -- Back is blocked, turn around and move forward instead
+        print("Back blocked, turning around...")
+        turtle.turnRight()
+        turtle.turnRight()
+        while not turtle.forward() do
+            turtle.dig()
+            sleep(0.1)
+        end
+        turtle.turnRight()
+        turtle.turnRight()
+    end
+
+    -- Verify we're actually at the starting position
+    local x3, y3, z3 = gpsLoc()
+    if x3 ~= x1 or y3 ~= y1 or z3 ~= z1 then
+        error(string.format("ERROR: detectFacing() didn't return to start! Was %d,%d,%d now %d,%d,%d", x1, y1, z1, x3, y3, z3))
+    end
 
     return detectedFacing
 end
@@ -224,6 +240,90 @@ end
 ----------------------------------
 -- MOVING TO ABSOLUTE COORDINATE
 ----------------------------------
+-- Smart movement without digging (for return trips)
+local function tryMoveWithoutDig()
+    -- Try moving forward without digging
+    if turtle.forward() then
+        stats.freeMoves = stats.freeMoves + 1
+        stats.totalMoves = stats.totalMoves + 1
+        return true
+    end
+    return false
+end
+
+local function moveToNoDig(tx, ty, tz)
+    -- Try to reach target WITHOUT digging (reuses mined paths)
+    -- If stuck, falls back to regular moveTo
+    local x, y, z = gpsLoc()
+    print(string.format("Return trip: %d,%d,%d -> %d,%d,%d (no-dig mode)", x, y, z, tx, ty, tz))
+
+    local attempts = 0
+    local maxAttempts = 1000
+
+    while (x ~= tx or y ~= ty or z ~= tz) and attempts < maxAttempts do
+        attempts = attempts + 1
+
+        -- Try vertical movement first (usually clear paths)
+        if y < ty then
+            if turtle.up() then
+                stats.freeMoves = stats.freeMoves + 1
+                stats.totalMoves = stats.totalMoves + 1
+                x, y, z = gpsLoc()
+                goto continue
+            end
+        elseif y > ty then
+            if turtle.down() then
+                stats.freeMoves = stats.freeMoves + 1
+                stats.totalMoves = stats.totalMoves + 1
+                x, y, z = gpsLoc()
+                goto continue
+            end
+        end
+
+        -- Try horizontal movement
+        local moved = false
+        if x ~= tx then
+            if tx > x then turnTo("east") else turnTo("west") end
+            if tryMoveWithoutDig() then
+                moved = true
+                x, y, z = gpsLoc()
+                goto continue
+            end
+        end
+
+        if z ~= tz then
+            if tz > z then turnTo("south") else turnTo("north") end
+            if tryMoveWithoutDig() then
+                moved = true
+                x, y, z = gpsLoc()
+                goto continue
+            end
+        end
+
+        -- Stuck! Try going up to find clear path
+        if not moved then
+            if turtle.up() then
+                stats.freeMoves = stats.freeMoves + 1
+                stats.totalMoves = stats.totalMoves + 1
+                x, y, z = gpsLoc()
+            else
+                -- Really stuck, fall back to regular moveTo
+                print("No-dig path blocked, using regular pathfinding...")
+                return moveTo(tx, ty, tz)
+            end
+        end
+
+        ::continue::
+    end
+
+    if attempts >= maxAttempts then
+        print("Return path timeout, using regular pathfinding...")
+        return moveTo(tx, ty, tz)
+    end
+
+    print(string.format("✓ Arrived home via existing paths! (%.1f%% free)", stats.freeMoves/stats.totalMoves*100))
+end
+
 local function moveTo(tx, ty, tz)
     local x,y,z = gpsLoc()
     print(string.format("MoveTo: from %d,%d,%d to %d,%d,%d", x, y, z, tx, ty, tz))
@@ -455,7 +555,7 @@ for i, b in ipairs(oreList) do
     -- Check if inventory is almost full
     if inventoryAlmostFull() then
         print("Inventory almost full, returning to home...")
-        moveTo(homeX, homeY, homeZ)
+        moveToNoDig(homeX, homeY, homeZ)  -- Use no-dig path for returns
         depositToChest()
         print("Returning to mining...")
     end
@@ -470,7 +570,7 @@ end
 -- RETURN TO HOME/CHEST
 ----------------------------------
 print("Returning to home...")
-moveTo(homeX, homeY, homeZ)
+moveToNoDig(homeX, homeY, homeZ)  -- Use no-dig path for final return
 depositToChest()
 
 print("All ores mined!")
