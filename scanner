@@ -1,215 +1,568 @@
--- GEO SCAN LARGE (16 radius) – Wireless Broadcast
+-- SmartMiner Computer Brain (Advanced Computer + Geo Scanner + Basalt GUI)
+-- Features: A* pathfinding, map persistence, real-time GUI, request-response protocol
 
 ----------------------------------
 -- CONFIGURATION
 ----------------------------------
-local SCAN_RADIUS = 16
-local PROTOCOL = "geo_scan_results"
+local scannerSide = "right"          -- side where geo scanner is attached
+local modemSide = "top"              -- side where wireless modem is attached
+local memorySide = "back"            -- side with memory card
+local BASALT = true                  -- set true if Basalt installed
+local SCAN_RADIUS = 8                -- scanner radius
+local MAP_SAVE_KEY = "minerMap"
+local AUTO_SAVE_INTERVAL = 30        -- seconds
+local PROTOCOL = "smartminer"        -- rednet protocol
 
--- Configure which ore to scan for
--- Options: "coal", "iron", "gold", "diamond", "redstone", "lapis", "emerald", "copper"
-local ORE_TYPE = "coal"  -- Change this to scan for different ores
+-- IDs and networking
+local COMPUTER_ID = os.getComputerID and os.getComputerID() or 1
+local TURTLE_TIMEOUT = 5
 
--- Ore block names (both normal and deepslate variants)
-local ORE_BLOCKS = {
-    coal = {"minecraft:coal_ore", "minecraft:deepslate_coal_ore"},
-    iron = {"minecraft:iron_ore", "minecraft:deepslate_iron_ore"},
-    gold = {"minecraft:gold_ore", "minecraft:deepslate_gold_ore"},
-    diamond = {"minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"},
-    redstone = {"minecraft:redstone_ore", "minecraft:deepslate_redstone_ore"},
-    lapis = {"minecraft:lapis_ore", "minecraft:deepslate_lapis_ore"},
-    emerald = {"minecraft:emerald_ore", "minecraft:deepslate_emerald_ore"},
-    copper = {"minecraft:copper_ore", "minecraft:deepslate_copper_ore"},
+----------------------------------
+-- PERIPHERALS SETUP
+----------------------------------
+local scanner = peripheral.wrap(scannerSide)
+local modem = peripheral.wrap(modemSide)
+local mem = peripheral.wrap(memorySide)
+
+if not scanner then
+    print("WARNING: Geo scanner not found on " .. scannerSide)
+end
+
+-- Ensure rednet open
+if modem and peripheral.getType(modemSide):find("modem") then
+    rednet.open(modemSide)
+else
+    print("Warning: modem not found on " .. modemSide)
+end
+
+----------------------------------
+-- MAP DATA STRUCTURE
+----------------------------------
+local mapData = {
+    visited = {},       -- ["x,y,z"] = true
+    blocks = {},        -- ["x,y,z"] = blockName
+    ores = {},          -- list of {x,y,z,name,claimed=false}
+    home = {x=0,y=0,z=0},
 }
 
--- Get the block names for selected ore
-local targetOres = ORE_BLOCKS[ORE_TYPE]
-if not targetOres then
-    error("ERROR: Invalid ORE_TYPE '" .. ORE_TYPE .. "'. Valid options: coal, iron, gold, diamond, redstone, lapis, emerald, copper")
+----------------------------------
+-- HELPERS
+----------------------------------
+local function keyFrom(x,y,z) 
+    return x..","..y..","..z 
 end
 
-print("═══════════════════════════════════")
-print(string.format("  SCANNING FOR: %s ORE", string.upper(ORE_TYPE)))
-print("═══════════════════════════════════")
-
--- Connect scanner
-local scanner = peripheral.wrap("geo_scanner_1")
-if not scanner then
-    error("ERROR: geo_scanner_1 not found!")
+local function saveMap()
+    if mem and mem.write then
+        local ok, err = pcall(function() 
+            mem.write(MAP_SAVE_KEY, textutils.serialize(mapData)) 
+        end)
+        if not ok then
+            print("Save error:", err)
+        end
+    end
 end
 
--- Find wireless modem
-local modemName = peripheral.find("modem", function(_, m) return m.isWireless() end)
-if not modemName then
-    error("ERROR: No wireless modem found!")
+local function loadMap()
+    if mem and mem.read and mem.list then
+        local list = mem.list()
+        if list and list[MAP_SAVE_KEY] then
+            local ok, dat = pcall(function() 
+                return textutils.unserialize(mem.read(MAP_SAVE_KEY)) 
+            end)
+            if ok and type(dat)=="table" then 
+                mapData = dat 
+                print("Map loaded from memory card")
+            end
+        end
+    end
 end
 
--- Open rednet
-rednet.open(peripheral.getName(modemName))
+-- Load map on startup
+loadMap()
 
--- Get scanner's GPS position
-print("Getting GPS position...")
-local scannerX, scannerY, scannerZ = gps.locate(3)
-if not scannerX then
-    error("ERROR: GPS signal required!")
-end
-scannerX, scannerY, scannerZ = math.floor(scannerX), math.floor(scannerY), math.floor(scannerZ)
-print(string.format("Scanner at: %d, %d, %d", scannerX, scannerY, scannerZ))
-
-print("Scanning radius:", SCAN_RADIUS)
-local data = scanner.scan(SCAN_RADIUS)
-
-if type(data) ~= "table" then
-    error("Scan failed: " .. tostring(data))
-end
-
-print("Total blocks scanned:", #data)
-
--- Create lookup table for fast position checking
-print("Building block map...")
-local blockMap = {}
-for _, b in ipairs(data) do
-    local key = string.format("%d,%d,%d", b.x, b.y, b.z)
-    blockMap[key] = b.name
+----------------------------------
+-- SCANNER WRAPPER
+----------------------------------
+local function doScan(radius)
+    if not scanner or not scanner.scan then 
+        print("No scanner available!")
+        return {} 
+    end
+    local ok, res = pcall(function() return scanner.scan(radius) end)
+    if not ok or not res then 
+        print("Scan failed:", res)
+        return {} 
+    end
+    return res
 end
 
--- Check if a position is exposed (has air adjacent)
-local function isExposed(x, y, z)
-    -- Check all 6 adjacent positions
-    local adjacent = {
-        {x+1, y, z},   -- east
-        {x-1, y, z},   -- west
-        {x, y+1, z},   -- up
-        {x, y-1, z},   -- down
-        {x, y, z+1},   -- south
-        {x, y, z-1}    -- north
+-- Ore definitions (supports both normal and deepslate)
+local ORE_NAMES = {
+    "minecraft:iron_ore", "minecraft:deepslate_iron_ore",
+    "minecraft:coal_ore", "minecraft:deepslate_coal_ore",
+    "minecraft:gold_ore", "minecraft:deepslate_gold_ore",
+    "minecraft:diamond_ore", "minecraft:deepslate_diamond_ore",
+    "minecraft:emerald_ore", "minecraft:deepslate_emerald_ore",
+    "minecraft:redstone_ore", "minecraft:deepslate_redstone_ore",
+    "minecraft:lapis_ore", "minecraft:deepslate_lapis_ore",
+    "minecraft:copper_ore", "minecraft:deepslate_copper_ore",
+}
+
+local function isOre(blockName)
+    for _, ore in ipairs(ORE_NAMES) do
+        if blockName == ore then return true end
+    end
+    return false
+end
+
+local function addOresFromScan(scanList, scanX, scanY, scanZ)
+    scanX = scanX or 0
+    scanY = scanY or 0
+    scanZ = scanZ or 0
+    
+    for _, b in ipairs(scanList) do
+        -- Convert to absolute coordinates
+        local absX, absY, absZ = scanX + b.x, scanY + b.y, scanZ + b.z
+        
+        -- Store block info
+        mapData.blocks[keyFrom(absX, absY, absZ)] = b.name
+        
+        -- Add ores
+        if isOre(b.name) then
+            local k = keyFrom(absX, absY, absZ)
+            local exists = false
+            for _,o in ipairs(mapData.ores) do 
+                if o.x==absX and o.y==absY and o.z==absZ then 
+                    exists=true
+                    break 
+                end 
+            end
+            if not exists then
+                table.insert(mapData.ores, {
+                    x=absX, 
+                    y=absY, 
+                    z=absZ, 
+                    name=b.name, 
+                    claimed=false
+                })
+            end
+        end
+    end
+    saveMap()
+end
+
+----------------------------------
+-- A* PATHFINDER (3D)
+----------------------------------
+local function neighbors(node)
+    local x,y,z = node.x, node.y, node.z
+    return {
+        {x=x+1, y=y, z=z, dir="east"},
+        {x=x-1, y=y, z=z, dir="west"},
+        {x=x, y=y+1, z=z, dir="up"},
+        {x=x, y=y-1, z=z, dir="down"},
+        {x=x, y=y, z=z+1, dir="south"},
+        {x=x, y=y, z=z-1, dir="north"},
     }
-
-    for _, pos in ipairs(adjacent) do
-        local key = string.format("%d,%d,%d", pos[1], pos[2], pos[3])
-        local blockName = blockMap[key]
-
-        -- If position not in map (air/void) or is air, it's exposed
-        if not blockName or blockName == "minecraft:air" or blockName == "minecraft:cave_air" then
-            return true
-        end
-    end
-
-    return false
 end
 
--- Helper function to check if block is target ore
-local function isTargetOre(blockName)
-    for _, oreName in ipairs(targetOres) do
-        if blockName == oreName then
-            return true
-        end
+local function isBlocked(x,y,z)
+    local name = mapData.blocks[keyFrom(x,y,z)]
+    if not name then return false end
+    -- treat known liquids/bedrock as blocked
+    if name:find("lava") or name:find("water") or name=="minecraft:bedrock" then 
+        return true 
     end
     return false
 end
 
-print(string.format("Filtering %s ore (exposed only, same level or above)...", ORE_TYPE))
-local oreList = {}
-local hiddenCount = 0
-local belowCount = 0
+local function heuristic(a,b)
+    return math.abs(a.x-b.x) + math.abs(a.y-b.y) + math.abs(a.z-b.z)
+end
 
-for _, b in ipairs(data) do
-    if isTargetOre(b.name) then
-        -- Check if ore is at same level or above scanner (not below)
-        local absoluteY = scannerY + b.y
+local function computePath(start, goal)
+    local open = {}
+    local openMap = {}
+    local cameFrom = {}
+    local gScore = {}
+    local fScore = {}
+    
+    local function push(node)
+        table.insert(open, node)
+        openMap[keyFrom(node.x, node.y, node.z)] = true
+    end
+    
+    local function popLowest()
+        local bestIdx, bestF = 1, math.huge
+        for i, node in ipairs(open) do
+            local k = keyFrom(node.x, node.y, node.z)
+            if fScore[k] and fScore[k] < bestF then 
+                bestF = fScore[k]
+                bestIdx = i 
+            end
+        end
+        local node = table.remove(open, bestIdx)
+        if node then 
+            openMap[keyFrom(node.x, node.y, node.z)] = nil 
+        end
+        return node
+    end
+    
+    local startKey = keyFrom(start.x, start.y, start.z)
+    gScore[startKey] = 0
+    fScore[startKey] = heuristic(start, goal)
+    push({x=start.x, y=start.y, z=start.z})
 
-        if absoluteY < scannerY then
-            -- Ore is below scanner - skip it
-            belowCount = belowCount + 1
-        elseif isExposed(b.x, b.y, b.z) then
-            -- Convert relative coordinates to absolute GPS coordinates
-            table.insert(oreList, {
-                x = scannerX + b.x,
-                y = scannerY + b.y,
-                z = scannerZ + b.z,
-                name = b.name
-            })
+    local iterations = 0
+    local maxIterations = 10000
+    
+    while #open > 0 and iterations < maxIterations do
+        iterations = iterations + 1
+        local current = popLowest()
+        
+        if current.x==goal.x and current.y==goal.y and current.z==goal.z then
+            -- reconstruct path
+            local path = {}
+            local curKey = keyFrom(current.x, current.y, current.z)
+            while curKey do
+                table.insert(path, 1, {x=current.x, y=current.y, z=current.z})
+                local c = cameFrom[curKey]
+                if not c then break end
+                current = c
+                curKey = keyFrom(current.x, current.y, current.z)
+            end
+            return path
+        end
+        
+        for _, n in ipairs(neighbors(current)) do
+            if not isBlocked(n.x, n.y, n.z) then
+                local nk = keyFrom(n.x, n.y, n.z)
+                local currentKey = keyFrom(current.x, current.y, current.z)
+                local tentative = gScore[currentKey] + 1
+                
+                if not gScore[nk] or tentative < gScore[nk] then
+                    cameFrom[nk] = current
+                    gScore[nk] = tentative
+                    fScore[nk] = tentative + heuristic(n, goal)
+                    if not openMap[nk] then 
+                        push({x=n.x, y=n.y, z=n.z}) 
+                    end
+                end
+            end
+        end
+    end
+    
+    return nil -- no path found
+end
+
+----------------------------------
+-- MESSAGE PROTOCOL HANDLERS
+----------------------------------
+local function handleRequest(id, msg)
+    if type(msg) ~= "table" or not msg.type then 
+        return 
+    end
+
+    if msg.type == "request_scan" then
+        print(string.format("[%d] Scan request from turtle %d", os.time(), id))
+        local scanX, scanY, scanZ = msg.x or 0, msg.y or 0, msg.z or 0
+        local scan = doScan(SCAN_RADIUS)
+        addOresFromScan(scan, scanX, scanY, scanZ)
+        rednet.send(id, { 
+            type = "scan_result", 
+            ores = mapData.ores,
+            scanned = #scan 
+        }, PROTOCOL)
+        print(string.format("  Sent %d ores to turtle", #mapData.ores))
+
+    elseif msg.type == "request_path" then
+        print(string.format("[%d] Path request from turtle %d", os.time(), id))
+        local cx, cy, cz = msg.x, msg.y, msg.z
+        print(string.format("  Turtle at: %d,%d,%d", cx, cy, cz))
+        
+        -- choose nearest unclaimed ore
+        local bestIdx, bestDist = nil, math.huge
+        for i, o in ipairs(mapData.ores) do
+            if not o.claimed and not mapData.visited[keyFrom(o.x, o.y, o.z)] then
+                local dx = o.x - cx
+                local dy = o.y - cy
+                local dz = o.z - cz
+                local dist = math.abs(dx) + math.abs(dy) + math.abs(dz)
+                if dist < bestDist then 
+                    bestDist = dist
+                    bestIdx = i 
+                end
+            end
+        end
+        
+        if not bestIdx then
+            print("  No available ores")
+            rednet.send(id, { 
+                type = "path", 
+                steps = {} 
+            }, PROTOCOL)
+            return
+        end
+        
+        -- mark claimed to avoid races
+        mapData.ores[bestIdx].claimed = true
+        saveMap()
+
+        local target = mapData.ores[bestIdx]
+        print(string.format("  Target ore: %s at %d,%d,%d", target.name, target.x, target.y, target.z))
+        
+        -- compute path with A*
+        local path = nil
+        local ok, res = pcall(function() 
+            return computePath(
+                {x=cx, y=cy, z=cz}, 
+                {x=target.x, y=target.y, z=target.z}
+            ) 
+        end)
+        
+        if ok and res then
+            path = res
+            print(string.format("  Path found: %d steps", #path))
         else
-            hiddenCount = hiddenCount + 1
+            path = {}
+            print("  Path computation failed:", res)
         end
+        
+        rednet.send(id, { 
+            type = "path", 
+            steps = path, 
+            target = target 
+        }, PROTOCOL)
+
+    elseif msg.type == "ore_mined" then
+        print(string.format("[%d] Ore mined report from turtle %d", os.time(), id))
+        local ox, oy, oz = msg.x, msg.y, msg.z
+        mapData.visited[keyFrom(ox, oy, oz)] = true
+        
+        -- remove ore from list
+        for i, o in ipairs(mapData.ores) do
+            if o.x==ox and o.y==oy and o.z==oz then 
+                print(string.format("  Removed ore: %s at %d,%d,%d", o.name, ox, oy, oz))
+                table.remove(mapData.ores, i)
+                break 
+            end
+        end
+        saveMap()
+        
+        -- Send acknowledgment
+        rednet.send(id, {
+            type = "ack",
+            remaining = #mapData.ores
+        }, PROTOCOL)
     end
 end
 
-print(string.format("Exposed %s ore found: %d", ORE_TYPE, #oreList))
-print("Hidden (skipped):", hiddenCount)
-print("Below scanner level (skipped):", belowCount)
-
 ----------------------------------
--- SORT ORES FOR EFFICIENT MINING
+-- BASALT GUI
 ----------------------------------
--- Sorting modes:
--- 1. DISTANCE - Mine closest ore first (fuel efficient)
--- 2. CHUNK - Group by chunks, then by Y level (organized mining)
--- 3. SWEEP - Sweep pattern X->Z->Y (systematic coverage)
+if BASALT then
+    print("Initializing Basalt GUI...")
+    local ok, basalt = pcall(require, "basalt")
+    
+    if not ok then
+        print("Basalt not available, using text mode")
+        BASALT = false
+    else
+        local screen = basalt.createFrame()
+        local mapW, mapH = 40, 20
+        
+        local mapWindow = screen:addTextArea("map")
+        mapWindow:setPosition(1, 1)
+        mapWindow:setSize(mapW, mapH)
+        mapWindow:setBackground(colors.black)
+        mapWindow:setForeground(colors.white)
 
-local SORT_MODE = "CHUNK"  -- Change to "DISTANCE" or "SWEEP" if desired
+        local panel = screen:addTextArea("panel")
+        panel:setPosition(mapW + 2, 1)
+        panel:setSize(30, mapH)
+        panel:setBackground(colors.gray)
+        panel:setForeground(colors.white)
 
-if #oreList > 0 then
-    print("Sorting ore by mode:", SORT_MODE)
+        local status = screen:addLabel("status")
+        status:setPosition(1, mapH + 1)
+        status:setSize(mapW + 31, 1)
+        status:setBackground(colors.black)
+        status:setForeground(colors.yellow)
 
-    if SORT_MODE == "DISTANCE" then
-        -- Sort by distance from scanner (closest first)
-        for _, c in ipairs(oreList) do
-            c.sortKey = math.sqrt(
-                (c.x - scannerX)^2 +
-                (c.y - scannerY)^2 +
-                (c.z - scannerZ)^2
-            )
+        local logArea = screen:addTextArea("log")
+        logArea:setPosition(1, mapH + 2)
+        logArea:setSize(mapW + 31, 7)
+        logArea:setBackground(colors.black)
+        logArea:setForeground(colors.lightGray)
+        
+        local logBuffer = {}
+        local maxLogLines = 6
+        
+        local function addLog(text)
+            table.insert(logBuffer, text)
+            if #logBuffer > maxLogLines then
+                table.remove(logBuffer, 1)
+            end
+            logArea:setText(table.concat(logBuffer, "\n"))
         end
-        table.sort(oreList, function(a, b) return a.sortKey < b.sortKey end)
-        print(string.format("Sorted by distance! Range: %d to %d blocks",
-            math.floor(oreList[1].sortKey), math.floor(oreList[#oreList].sortKey)))
 
-    elseif SORT_MODE == "CHUNK" then
-        -- Sort by chunk, then Y level (bottom-up), then distance within chunk
-        for _, c in ipairs(oreList) do
-            local chunkX = math.floor(c.x / 16)
-            local chunkZ = math.floor(c.z / 16)
-            -- Create compound sort key: chunk, then Y, then local distance
-            c.chunkKey = chunkX * 10000 + chunkZ
-            c.yKey = c.y
-            c.localDist = (c.x % 16) + (c.z % 16)
+        local function render()
+            -- Map rendering (simple 2D top-down view)
+            local cx, cz = mapData.home.x, mapData.home.z
+            local rangeX = math.floor(mapW / 2)
+            local rangeZ = math.floor(mapH / 2)
+            local out = {}
+            
+            for z = -rangeZ, rangeZ do
+                local row = ""
+                for x = -rangeX, rangeX do
+                    local wx = cx + x
+                    local wz = cz + z
+                    local k = keyFrom(wx, mapData.home.y, wz)
+                    
+                    if x == 0 and z == 0 then
+                        row = row .. "H"  -- Home
+                    elseif mapData.visited[k] then 
+                        row = row .. "."  -- Visited
+                    else
+                        local hasOre = false
+                        for _, o in ipairs(mapData.ores) do
+                            if o.x == wx and o.z == wz then
+                                hasOre = true
+                                break
+                            end
+                        end
+                        if hasOre then
+                            row = row .. "*"  -- Ore
+                        elseif mapData.blocks[k] then
+                            row = row .. "#"  -- Block
+                        else
+                            row = row .. " "  -- Unknown
+                        end
+                    end
+                end
+                table.insert(out, row)
+            end
+            mapWindow:setText(table.concat(out, "\n"))
+
+            -- Panel: show ore list
+            local panelText = "SMARTMINER SYSTEM\n"
+            panelText = panelText .. string.rep("=", 28) .. "\n"
+            panelText = panelText .. string.format("Ores: %d\n", #mapData.ores)
+            panelText = panelText .. string.format("Visited: %d\n", 
+                (function() 
+                    local count = 0
+                    for _ in pairs(mapData.visited) do count = count + 1 end
+                    return count
+                end)())
+            panelText = panelText .. string.rep("-", 28) .. "\n"
+            panelText = panelText .. "Recent Ores:\n"
+            
+            local oreCount = math.min(10, #mapData.ores)
+            for i = 1, oreCount do
+                local o = mapData.ores[i]
+                local oreName = o.name:match("minecraft:(%w+)_ore") or "ore"
+                local status = o.claimed and "[C]" or "[ ]"
+                panelText = panelText .. string.format("%s %s %d,%d,%d\n", 
+                    status, oreName, o.x, o.y, o.z)
+            end
+            
+            if #mapData.ores > 10 then
+                panelText = panelText .. string.format("...and %d more\n", #mapData.ores - 10)
+            end
+            
+            panel:setText(panelText)
+
+            -- Status
+            status:setText(string.format(
+                "Computer ID: %d | Protocol: %s | Ores: %d | Press Q to quit", 
+                COMPUTER_ID, PROTOCOL, #mapData.ores
+            ))
         end
-        table.sort(oreList, function(a, b)
-            if a.chunkKey ~= b.chunkKey then return a.chunkKey < b.chunkKey end
-            if a.yKey ~= b.yKey then return a.yKey < b.yKey end
-            return a.localDist < b.localDist
+
+        screen:setBackground(colors.black)
+        screen:show()
+        
+        print("Basalt GUI initialized")
+        addLog("SmartMiner Computer Brain started")
+        addLog(string.format("Computer ID: %d", COMPUTER_ID))
+        addLog(string.format("Protocol: %s", PROTOCOL))
+        
+        local lastSave = os.epoch("utc")
+        local running = true
+        
+        -- Event loop
+        basalt.schedule(function()
+            while running do
+                render()
+                
+                -- Auto-save
+                local now = os.epoch("utc")
+                if now - lastSave >= AUTO_SAVE_INTERVAL * 1000 then
+                    saveMap()
+                    lastSave = now
+                end
+                
+                sleep(0.1)
+            end
         end)
-        local chunks = {}
-        for _, c in ipairs(oreList) do
-            chunks[c.chunkKey] = (chunks[c.chunkKey] or 0) + 1
-        end
-        local chunkCount = 0
-        for _ in pairs(chunks) do chunkCount = chunkCount + 1 end
-        print(string.format("Sorted by chunk! %d chunks, %d blocks total", chunkCount, #oreList))
-
-    elseif SORT_MODE == "SWEEP" then
-        -- Sweep pattern: X, then Z, then Y
-        table.sort(oreList, function(a, b)
-            if a.x ~= b.x then return a.x < b.x end
-            if a.z ~= b.z then return a.z < b.z end
-            return a.y < b.y
+        
+        -- Rednet listener
+        basalt.schedule(function()
+            while running do
+                local senderId, message, protocol = rednet.receive(PROTOCOL, 0.1)
+                if senderId then
+                    addLog(string.format("< Turtle %d: %s", senderId, message.type or "unknown"))
+                    handleRequest(senderId, message)
+                end
+            end
         end)
-        print("Sorted in sweep pattern (X->Z->Y)")
-    end
-
-    -- Clean up temporary sort keys
-    for _, c in ipairs(oreList) do
-        c.sortKey = nil
-        c.chunkKey = nil
-        c.yKey = nil
-        c.localDist = nil
+        
+        -- Key handler
+        screen:onEvent(function(event, p1)
+            if event == "key" and p1 == keys.q then
+                running = false
+                saveMap()
+                basalt.stop()
+            end
+        end)
+        
+        basalt.autoUpdate()
     end
 end
 
-print(string.format("Broadcasting %s ore (ABSOLUTE GPS coordinates)...", ORE_TYPE))
-print("Protocol:", PROTOCOL)
-rednet.broadcast(oreList, PROTOCOL)
-
-print("Done!")
-print(string.format("Sent %d %s ore locations to miner", #oreList, ORE_TYPE))
+----------------------------------
+-- TEXT MODE (NO BASALT)
+----------------------------------
+if not BASALT then
+    print("═══════════════════════════════════")
+    print("  SMARTMINER COMPUTER BRAIN")
+    print("═══════════════════════════════════")
+    print("Computer ID:", COMPUTER_ID)
+    print("Protocol:", PROTOCOL)
+    print("Scanner:", scanner and "OK" or "NOT FOUND")
+    print("Modem:", modem and "OK" or "NOT FOUND")
+    print("Memory:", mem and "OK" or "NOT FOUND")
+    print("")
+    print("Listening for turtle requests...")
+    print("Press Ctrl+T to stop")
+    
+    local lastSave = os.epoch("utc")
+    
+    while true do
+        local senderId, message, protocol = rednet.receive(PROTOCOL, 1)
+        if senderId then
+            print(string.format("[%d] Request from turtle %d", os.time(), senderId))
+            handleRequest(senderId, message)
+        end
+        
+        -- Auto-save
+        local now = os.epoch("utc")
+        if now - lastSave >= AUTO_SAVE_INTERVAL * 1000 then
+            saveMap()
+            lastSave = now
+            print("Map auto-saved")
+        end
+    end
+end
